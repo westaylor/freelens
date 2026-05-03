@@ -97,7 +97,13 @@ export type ClusterPageMenuOrder = {
   [key: string]: number;
 };
 
-export const defaultExtensionRegistryUrlLocation = "default";
+// Internal-fork hardening (D-5, _security-review/03-network-egress-audit.md):
+// Upstream defaulted to "default" which resolves to https://registry.npmjs.org.
+// We default to "npmrc" so the user's npm config (which corp IT preconfigures
+// to point at the internal mirror) is honored. If the user's npmrc is not
+// configured, the extension install fails closed -- which is the desired
+// outcome for an offline / firewalled deployment.
+export const defaultExtensionRegistryUrlLocation: ExtensionRegistryLocation = "npmrc";
 export const defaultExtensionRegistryUrl = "https://registry.npmjs.org";
 
 type PreferencesModelType<field extends keyof PreferenceDescriptors> =

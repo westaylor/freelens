@@ -1,3 +1,10 @@
+// Internal-fork hardening (M6, _security-review/01-source-code-review.md):
+// Side-effect import sets a strict umask BEFORE any other import can run a
+// module-load side effect that touches the filesystem. With `module: ES2022`
+// imports are hoisted, so the only reliable place for `process.umask` is the
+// first import line. See ./apply-umask.ts for the rationale.
+import "./apply-umask";
+
 import { applicationFeature, startApplicationInjectionToken } from "@freelensapp/application";
 import { applicationFeatureForElectronMain } from "@freelensapp/application-for-electron-main";
 import { commonExtensionApi as Common, mainExtensionApi as Main, registerLensCore } from "@freelensapp/core/main";

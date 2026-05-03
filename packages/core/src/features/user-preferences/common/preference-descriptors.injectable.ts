@@ -72,8 +72,15 @@ const userPreferenceDescriptorsInjectable = getInjectable({
         toStore: (val) => (val === defaultPackageMirror ? undefined : val),
       }),
       downloadKubectlBinaries: getPreferenceDescriptor<boolean>({
-        fromStore: (val) => val ?? true,
-        toStore: (val) => (val ? undefined : val),
+        // Internal-fork hardening (D-3): default to false. Upstream silently
+        // downloads kubectl from dl.k8s.io whenever a connected cluster's
+        // Kubernetes minor differs from the bundled version. We bundle a
+        // recent kubectl that covers all our supported managed-k8s offerings;
+        // a fallback download adds an unsigned binary to the user's machine
+        // and an outbound request to a third-party domain.
+        // Power users can still flip this on in Preferences -> Kubernetes.
+        fromStore: (val) => val ?? false,
+        toStore: (val) => (!val ? undefined : val),
       }),
       downloadBinariesPath: getPreferenceDescriptor<string | undefined>({
         fromStore: (val) => val,
