@@ -4,6 +4,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { loggerInjectionToken } from "@freelensapp/logger";
 import { object } from "@freelensapp/utilities";
 import { getInjectable } from "@ogre-tools/injectable";
@@ -11,7 +14,6 @@ import getBasenameOfPathInjectable from "../../../common/path/get-basename.injec
 import spawnInjectable from "../../../main/child-process/spawn.injectable";
 import randomUUIDInjectable from "../../../main/crypto/random-uuid.injectable";
 import processEnvInjectable from "./env.injectable";
-import processExecPathInjectable from "./execPath.injectable";
 
 import type { AsyncResult } from "@freelensapp/utilities";
 
@@ -68,38 +70,115 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
     const spawn = di.inject(spawnInjectable);
     const logger = di.inject(loggerInjectionToken);
     const randomUUID = di.inject(randomUUIDInjectable);
-    const processExecPath = di.inject(processExecPathInjectable);
     const processEnv = di.inject(processEnvInjectable);
 
-    const getShellSpecifics = (shellName: string) => {
-      const mark = randomUUID().replace(/-/g, "");
-      const regex = new RegExp(`${mark}(\\{.*\\})${mark}`);
+    // Internal-fork hardening (issues #1696, #1668, #1007 from upstream;
+    // _security-review/06-semgrep-static-analysis.md):
+    //
+    // The upstream implementation pipes a command into the user's
+    // login+interactive shell that re-spawns the Freelens.app binary as
+    // a Node interpreter (`Freelens -e 'process.stdout.write(<delim> +
+    // JSON.stringify(process.env) + <delim>)'`), then regex-matches the
+    // delimited blob out of the shell's stdout. This produces three
+    // problems for our deployment:
+    //
+    //   1. Endpoint EDR (SentinelOne, Defender ATP, CrowdStrike) flags
+    //      the Electron-as-Node-interpreter pattern as preload injection
+    //      / process hollowing and quarantines the binary. Reproduced
+    //      in the wild: github.com/freelensapp/freelens#1668.
+    //   2. The probe command lands in the user's ~/.zsh_history and
+    //      ~/.bash_history, leaking environment-variable contents (which
+    //      can include AWS_*, GH_TOKEN, SSH_*, etc.) once the shell
+    //      log-rotates them anywhere.
+    //   3. The shell-history pollution also surprises users; #1696.
+    //
+    // We replace the in-band stdout protocol with an out-of-band tempfile
+    // protocol: the shell runs `/usr/bin/env -0 > <tmp>` (POSIX), which
+    // writes NUL-separated KEY=VAL pairs to a file we own with 0o600
+    // perms (umask 0o077 from src/main/apply-umask.ts). The main process
+    // reads, parses, and deletes the file. No Electron-as-Node, no
+    // delimited stdout, no history-tagged JSON.stringify call.
+    //
+    // For PowerShell we use `Get-ChildItem Env: | ConvertTo-Json` to a
+    // tempfile -- same out-of-band pattern, just the Windows shell idiom.
+    //
+    // Note: `env -0` is supported on macOS (BSD env) and modern GNU env.
+    // Older BusyBox env lacks -0, so we fall back to a `\n`-delimited
+    // parse if the file contains no `\0`.
+
+    interface ShellSpecifics {
+      shellArgs: string[];
+      command: string;
+      tmpFile: string;
+      tmpDir: string;
+      isPowerShell: boolean;
+    }
+
+    const buildShellSpecifics = (shellName: string): ShellSpecifics => {
+      const tmpDir = mkdtempSync(join(tmpdir(), "freelens-shell-env-"));
+      const tmpFile = join(tmpDir, `env-${randomUUID().replace(/-/g, "")}`);
 
       if (powerShellName.test(shellName)) {
-        // Older versions of PowerShell removes double quotes sometimes so we use "double single quotes" which is how
-        // you escape single quotes inside of a single quoted string.
+        // PowerShell: dump env as JSON to file, exit. No interactive flag
+        // because PowerShell -Command runs without a user-visible prompt.
         return {
-          command: `Command '${processExecPath}' -e 'process.stdout.write(\\"${mark}\\" + JSON.stringify(process.env) + \\"${mark}\\")'`,
-          shellArgs: ["-Login"],
-          regex,
+          shellArgs: ["-Login", "-NoProfile", "-NonInteractive", "-Command"],
+          command: `Get-ChildItem Env: | ConvertTo-Json | Out-File -Encoding utf8 '${tmpFile}'`,
+          tmpFile,
+          tmpDir,
+          isPowerShell: true,
         };
       }
 
-      let command = `'${processExecPath}' -e 'process.stdout.write("${mark}" + JSON.stringify(process.env) + "${mark}")'`;
+      // POSIX shells. We pipe a single command line into the shell's
+      // stdin with a leading space so HISTCONTROL=ignorespace shells
+      // don't record it. The shell still loads .zshrc / .bashrc because
+      // we open it with -l + (-i for shells that need it).
+      const command = ` /usr/bin/env -0 > '${tmpFile}' 2>/dev/null; exit 0\n`;
       const shellArgs = ["-l"];
-
       if (fishLikeShellName.test(shellName)) {
-        shellArgs.push("-c", command);
-        command = "";
-      } else if (!cshLikeShellName.test(shellName)) {
-        // zsh (at least, maybe others) don't load RC files when in non-interactive mode, even when using -l (login) option
-        shellArgs.push("-i");
-        command = ` ${command}`; // This prevents the command from being added to the history
-      } else {
-        // Some shells don't support any other options when providing the -l (login) shell option
+        // fish doesn't read stdin commands the same way; -c is cleaner.
+        return {
+          shellArgs: ["-l", "-c", command.trim()],
+          command: "",
+          tmpFile,
+          tmpDir,
+          isPowerShell: false,
+        };
       }
+      if (!cshLikeShellName.test(shellName)) {
+        // zsh / bash / dash: -i so RC files load.
+        shellArgs.push("-i");
+      }
+      return { shellArgs, command, tmpFile, tmpDir, isPowerShell: false };
+    };
 
-      return { command, shellArgs, regex };
+    const parseEnvFile = (raw: Buffer, isPowerShell: boolean): Partial<Record<string, string>> => {
+      if (isPowerShell) {
+        // PowerShell ConvertTo-Json output is an array of {Name, Value}.
+        const text = raw.toString("utf-8").replace(/^﻿/, ""); // strip BOM
+        const parsed = JSON.parse(text);
+        const arr: { Name: string; Value: string }[] = Array.isArray(parsed) ? parsed : [parsed];
+        const out: Record<string, string> = {};
+        for (const item of arr) {
+          if (item && typeof item.Name === "string") {
+            out[item.Name] = typeof item.Value === "string" ? item.Value : "";
+          }
+        }
+        return out;
+      }
+      // POSIX: NUL-separated KEY=VAL records. Fall back to newline-split
+      // if NUL absent (older BusyBox env).
+      const text = raw.toString("utf-8");
+      const records = text.includes("\0") ? text.split("\0") : text.split("\n");
+      const out: Record<string, string> = {};
+      for (const record of records) {
+        if (!record) continue;
+        const eq = record.indexOf("=");
+        if (eq <= 0) continue;
+        out[record.slice(0, eq)] = record.slice(eq + 1);
+      }
+      return out;
     };
 
     return async (shellPath, opts) => {
@@ -111,9 +190,17 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
         VSCODE_SHELL_INTEGRATION: "1", // VS Code shell integration breaks output
       });
       const shellName = getBasenameOfPath(shellPath);
-      const { command, shellArgs, regex } = getShellSpecifics(shellName);
+      const specifics = buildShellSpecifics(shellName);
+      const { command, shellArgs, tmpFile, tmpDir, isPowerShell } = specifics;
+      const cleanup = () => {
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          // best effort
+        }
+      };
 
-      logger.info(`[UNIX-SHELL-ENV]: running against ${shellPath}`, { command, shellArgs });
+      logger.info(`[UNIX-SHELL-ENV]: running against ${shellPath}`, { shellArgs, tmpFile });
 
       return new Promise((resolve) => {
         const shellProcess = spawn(shellPath, shellArgs, {
@@ -121,23 +208,21 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
           detached: true,
           env,
         });
-        const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
 
         const getErrorContext = (other: object = {}) => {
           const context = {
             ...other,
-            stdout: Buffer.concat(stdout).toString("utf-8"),
             stderr: Buffer.concat(stderr).toString("utf-8"),
           };
-
           return JSON.stringify(context, null, 4);
         };
 
-        shellProcess.stdout.on("data", (b) => stdout.push(b));
+        // We don't read stdout -- the protocol is out-of-band via tmpFile.
         shellProcess.stderr.on("data", (b) => stderr.push(b));
 
         shellProcess.on("error", (error) => {
+          cleanup();
           if (opts.signal.aborted) {
             resolve({
               callWasSuccessful: false,
@@ -150,8 +235,10 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
             });
           }
         });
+
         shellProcess.on("close", (code, signal) => {
           if (code || signal) {
+            cleanup();
             return resolve({
               callWasSuccessful: false,
               error: `Shell did not exit successfully: ${getErrorContext({ code, signal })}`,
@@ -159,20 +246,17 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
           }
 
           try {
-            const rawOutput = Buffer.concat(stdout).toString("utf-8");
+            const raw = readFileSync(tmpFile);
+            logger.silly(`[UNIX-SHELL-ENV]: got ${raw.length} bytes of env`);
+            const resolvedEnv = parseEnvFile(raw, isPowerShell);
+            cleanup();
 
-            logger.silly(`[UNIX-SHELL-ENV]: got the following output`, { rawOutput });
-
-            const matchedOutput = regex.exec(rawOutput)?.[1];
-
-            if (!matchedOutput) {
+            if (Object.keys(resolvedEnv).length === 0) {
               return resolve({
                 callWasSuccessful: false,
-                error: "Something has blocked the shell from producing the environment variables",
+                error: "Shell wrote an empty environment dump",
               });
             }
-
-            const resolvedEnv = JSON.parse(matchedOutput) as Partial<Record<string, string>>;
 
             resetEnvPairs(resolvedEnv);
             resolve({
@@ -180,6 +264,7 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
               response: resolvedEnv,
             });
           } catch (err) {
+            cleanup();
             resolve({
               callWasSuccessful: false,
               error: String(err),
@@ -187,7 +272,11 @@ const computeUnixShellEnvironmentInjectable = getInjectable({
           }
         });
 
-        shellProcess.stdin.end(command);
+        if (command) {
+          shellProcess.stdin.end(command);
+        } else {
+          shellProcess.stdin.end();
+        }
       });
     };
   },
