@@ -16,6 +16,8 @@ export default getGlobalOverride(nativeThemeInjectable, () =>
     shouldUseInvertedColorScheme: false,
     shouldUseDarkColorsForSystemIntegratedUI: true,
     prefersReducedTransparency: false,
+    // Added in Electron 41 (NativeTheme.shouldDifferentiateWithoutColor).
+    shouldDifferentiateWithoutColor: false,
     themeSource: "dark" as const,
   }),
 );

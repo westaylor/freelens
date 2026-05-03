@@ -47,6 +47,11 @@ overrides:
   path-to-regexp@^0: ^0.1.13
   # @xmldom/xmldom: pulled in by electron-builder>app-builder-lib>plist.
   '@xmldom/xmldom@^0.8': ^0.8.13
+  # monaco-editor 0.55.x changed the worker resolution path and is
+  # incompatible with monaco-editor-webpack-plugin@7.1.1 (which we
+  # pin to). Lock the whole tree at 0.54.x until we either bump the
+  # plugin to a 0.55-compatible release or migrate to monaco-vite.
+  monaco-editor: 0.54.0
   postcss@^8: ^8.5.10
   js-yaml@^3: ^3.14.2
   # Existing freelens overrides (unchanged):

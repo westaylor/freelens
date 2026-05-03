@@ -250,6 +250,17 @@ export default getGlobalOverride(electronAppInjectable, () => {
       throw new Error("Method not implemented.");
     }
 
+    // Added in Electron 41 (Windows-only methods + WebAuthn config).
+    configureWebAuthn(options: Electron.ConfigureWebAuthnOptions): void {
+      void options;
+      throw new Error("Method not implemented.");
+    }
+    setToastActivatorCLSID(clsid: string): void {
+      void clsid;
+      throw new Error("Method not implemented.");
+    }
+    toastActivatorCLSID = "";
+
     accessibilitySupportEnabled = false;
     applicationMenu: Electron.Menu | null = null;
     badgeCount = 0;
