@@ -13,6 +13,12 @@ import removePathInjectable from "../../common/fs/remove.injectable";
 import writeFileInjectable from "../../common/fs/write-file.injectable";
 import userPreferencesStateInjectable from "../../features/user-preferences/common/state.injectable";
 import execHelmInjectable from "./exec-helm/exec-helm.injectable";
+import {
+  validateHelmChartSpec,
+  validateHelmNamespace,
+  validateHelmReleaseName,
+  validateHelmVersion,
+} from "./validate-helm-arg";
 
 import type { JsonValue } from "type-fest";
 
@@ -45,6 +51,15 @@ const installHelmChartInjectable = getInjectable({
     const state = di.inject(userPreferencesStateInjectable);
 
     return async ({ chart, kubeconfigPath, name, namespace, values, version, forceConflicts }) => {
+      // Internal-fork hardening (M4): validate user-controlled identifiers
+      // before they reach the helm argv. Reject anything that could be
+      // confused for a flag.
+      validateHelmChartSpec(chart);
+      validateHelmNamespace(namespace);
+      validateHelmVersion(version);
+      if (name) {
+        validateHelmReleaseName(name);
+      }
       // Internal-fork hardening (_security-review/02-supply-chain-audit.md):
       // tempy@1.0.1 was a 5-year-old single-maintainer pin. Inline the small
       // bit of logic we used (tempy.file({ name }) -> a unique-dir/<name>)

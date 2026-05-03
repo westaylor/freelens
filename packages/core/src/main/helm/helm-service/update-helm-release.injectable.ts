@@ -14,6 +14,12 @@ import writeFileInjectable from "../../../common/fs/write-file.injectable";
 import userPreferencesStateInjectable from "../../../features/user-preferences/common/state.injectable";
 import kubeconfigManagerInjectable from "../../kubeconfig-manager/kubeconfig-manager.injectable";
 import execHelmInjectable from "../exec-helm/exec-helm.injectable";
+import {
+  validateHelmChartSpec,
+  validateHelmNamespace,
+  validateHelmReleaseName,
+  validateHelmVersion,
+} from "../validate-helm-arg";
 import getHelmReleaseInjectable from "./get-helm-release.injectable";
 
 import type { Cluster } from "../../../common/cluster/cluster";
@@ -37,6 +43,12 @@ const updateHelmReleaseInjectable = getInjectable({
     const state = di.inject(userPreferencesStateInjectable);
 
     return async (cluster: Cluster, releaseName: string, namespace: string, data: UpdateChartArgs) => {
+      // Internal-fork hardening (M4): validate user-controlled identifiers
+      // before they reach the helm argv.
+      validateHelmReleaseName(releaseName);
+      validateHelmNamespace(namespace);
+      validateHelmChartSpec(data.chart);
+      validateHelmVersion(data.version);
       const proxyKubeconfigManager = di.inject(kubeconfigManagerInjectable, cluster);
       const proxyKubeconfigPath = await proxyKubeconfigManager.ensurePath();
       // tempy@1.0.1 dropped: see install-helm-chart.injectable.ts comment.
