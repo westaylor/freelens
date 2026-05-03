@@ -36,6 +36,70 @@ const startingServeRegex = Object.assign(TypedRegEx(startingServeMatcher, "i"), 
   rawMatcher: startingServeMatcher,
 });
 
+// Internal-fork hardening (upstream issue #208 + general UX):
+//
+// freelens-k8s-proxy forwards verbose `kubectl`-style stderr when an
+// exec-credential plugin is missing on PATH. The default UI shows
+// the raw blob, e.g.
+//
+//     E0304 16:42:11.173463 22628 proxy_server.go:147]
+//     Error while proxying request: getting credentials: exec:
+//     executable gke-gcloud-auth-plugin.exe not found
+//     It looks like you are trying to use a client-go credential
+//     plugin that is not installed.  ...
+//
+// which leaves users (especially Windows / new-mac) staring at a
+// 200-char line with no idea what to install. Detect the common
+// "executable X not found" patterns and emit a one-line friendly
+// hint as a separate update before the raw blob, so the user sees
+// the actionable message first in the cluster-status panel.
+const credentialPluginHints: { detect: RegExp; hint: string }[] = [
+  {
+    detect: /executable\s+gke-gcloud-auth-plugin(?:\.exe)?\s+not\s+found/i,
+    hint:
+      "GCP credential plugin not found. Install with `gcloud components install gke-gcloud-auth-plugin` " +
+      "(or `brew install --cask google-cloud-sdk` then run that command), then reconnect.",
+  },
+  {
+    detect: /executable\s+aws-iam-authenticator(?:\.exe)?\s+not\s+found/i,
+    hint:
+      "aws-iam-authenticator not found. Install via your package manager (`brew install aws-iam-authenticator` " +
+      "/ Linux: see https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html) and reconnect.",
+  },
+  {
+    detect: /executable\s+aws(?:\.exe)?\s+not\s+found/i,
+    hint:
+      "AWS CLI v2 not found on PATH. Install AWS CLI v2 (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) " +
+      "and ensure it's on your shell PATH, then reconnect.",
+  },
+  {
+    detect: /executable\s+(?:azure-)?kubelogin(?:\.exe)?\s+not\s+found/i,
+    hint:
+      "kubelogin not found. Install with `az aks install-cli` (Azure CLI) or `brew install Azure/kubelogin/kubelogin`, then reconnect.",
+  },
+  {
+    detect: /executable\s+gcloud(?:\.cmd|\.exe)?\s+not\s+found/i,
+    hint: "gcloud CLI not found on PATH. Install Google Cloud SDK and ensure `gcloud` is on PATH, then reconnect.",
+  },
+  // Generic exec-credential fallback. Captures the missing executable's
+  // name when it doesn't match one of the known plugins above.
+  {
+    detect: /exec(?:\s*\([^)]*\))?:\s+executable\s+(\S+?)\s+not\s+found/i,
+    hint:
+      "A kubeconfig exec-credential plugin is missing on your PATH. " +
+      "Install the named binary (see your kubeconfig `users[].user.exec.command`), then reconnect.",
+  },
+];
+
+/** Returns a one-line friendly hint when stderr matches a known
+ * credential-plugin-missing pattern, or undefined when no pattern matches. */
+function detectCredentialPluginHint(stderr: string): string | undefined {
+  for (const { detect, hint } of credentialPluginHints) {
+    if (detect.test(stderr)) return hint;
+  }
+  return undefined;
+}
+
 const createKubeAuthProxyInjectable = getInjectable({
   id: "create-kube-auth-proxy",
 
@@ -127,9 +191,21 @@ const createKubeAuthProxyInjectable = getInjectable({
             return;
           }
 
+          const text = data.toString();
+          // Surface a one-line friendly hint BEFORE the raw blob so the
+          // user sees the actionable thing first in the cluster-status
+          // panel. See the credentialPluginHints table above.
+          const hint = detectCredentialPluginHint(text);
+          if (hint) {
+            broadcastConnectionUpdate({
+              level: "error",
+              message: hint,
+            });
+          }
+
           broadcastConnectionUpdate({
             level: "error",
-            message: data.toString(),
+            message: text,
           });
         });
 
