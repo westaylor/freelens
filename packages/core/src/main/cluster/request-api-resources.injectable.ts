@@ -55,7 +55,18 @@ const requestApiResourcesInjectable = getInjectable({
           return result;
         }
 
-        groupLists.push(...result.response);
+        // Internal-fork hardening (upstream issues #1680, #1337):
+        //
+        // Avoid `groupLists.push(...result.response)`. The spread is
+        // implemented as Function.prototype.apply with each element as
+        // a separate argument; on operator-heavy clusters (Crossplane,
+        // Gatekeeper, Argo, Strimzi, ...) a single API-versions request
+        // can return tens of thousands of entries, exceeding the engine's
+        // argument-count limit and surfacing as
+        // `RangeError: Maximum call stack size exceeded` in the user's
+        // "Failed to refresh accessibility" toast. Iterative push is
+        // O(n) without that limit.
+        for (const item of result.response) groupLists.push(item);
       }
 
       const apiResourceRequests = groupLists.map(async (listGroup) =>
@@ -73,7 +84,8 @@ const requestApiResourcesInjectable = getInjectable({
           continue;
         }
 
-        resources.push(...result.response);
+        // See note above re: #1680/#1337. Same spread-push hazard.
+        for (const item of result.response) resources.push(item);
       }
 
       return {

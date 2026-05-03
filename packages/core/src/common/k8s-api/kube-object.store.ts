@@ -236,7 +236,10 @@ export class KubeObjectStore<
     for (const result of results) {
       switch (result.status) {
         case "fulfilled":
-          res.push(...(result.value ?? []));
+          // Iterative push to avoid RangeError on multi-namespace
+          // queries against very-large clusters (cf. upstream issues
+          // #1680, #1337; same root cause as request-api-resources).
+          for (const item of result.value ?? []) res.push(item);
           break;
 
         case "rejected":
