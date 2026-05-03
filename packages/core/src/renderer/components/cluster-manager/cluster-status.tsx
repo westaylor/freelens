@@ -12,6 +12,7 @@ import { withInjectables } from "@ogre-tools/injectable-react";
 import { computed, makeObservable, observable } from "mobx";
 import { disposeOnUnmount, observer } from "mobx-react";
 import React from "react";
+import navigateToCatalogInjectable from "../../../common/front-end-routing/routes/catalog/navigate-to-catalog.injectable";
 import navigateToEntitySettingsInjectable from "../../../common/front-end-routing/routes/entity-settings/navigate-to-entity-settings.injectable";
 import { ipcRendererOn } from "../../../common/ipc";
 import requestClusterActivationInjectable from "../../../features/cluster/activation/renderer/request-activation.injectable";
@@ -22,6 +23,7 @@ import type { IClassName } from "@freelensapp/utilities";
 
 import type { Cluster } from "../../../common/cluster/cluster";
 import type { KubeAuthUpdate } from "../../../common/cluster-types";
+import type { NavigateToCatalog } from "../../../common/front-end-routing/routes/catalog/navigate-to-catalog.injectable";
 import type { NavigateToEntitySettings } from "../../../common/front-end-routing/routes/entity-settings/navigate-to-entity-settings.injectable";
 import type { RequestClusterActivation } from "../../../features/cluster/activation/common/request-token";
 import type { CatalogEntityRegistry } from "../../api/catalog/entity/registry";
@@ -32,6 +34,7 @@ export interface ClusterStatusProps {
 }
 
 interface Dependencies {
+  navigateToCatalog: NavigateToCatalog;
   navigateToEntitySettings: NavigateToEntitySettings;
   entityRegistry: CatalogEntityRegistry;
   requestClusterActivation: RequestClusterActivation;
@@ -107,6 +110,19 @@ class NonInjectedClusterStatus extends React.Component<ClusterStatusProps & Depe
     this.props.navigateToEntitySettings(this.cluster.id, "proxy");
   };
 
+  // Internal-fork hardening (upstream issue #1198):
+  //
+  // Upstream only surfaced a "Reconnect" button when the auth output
+  // had level === "warning" or "error". If the cluster simply
+  // disappeared (kind cluster recreated, VPN drop, network cable
+  // unplugged) and main produced no level=warning/error event, the
+  // user got an indefinitely spinning "Connecting..." with no escape.
+  // Always offer "Back to Catalog" so the user can leave the dead
+  // cluster view in any state.
+  backToCatalog = () => {
+    this.props.navigateToCatalog();
+  };
+
   renderAuthenticationOutput() {
     return (
       <pre>
@@ -168,6 +184,10 @@ class NonInjectedClusterStatus extends React.Component<ClusterStatusProps & Depe
           {this.renderStatusIcon()}
           {this.renderAuthenticationOutput()}
           {this.renderReconnectionHelp()}
+          {/* Always-on escape route (#1198). */}
+          <a className="box center interactive" onClick={this.backToCatalog}>
+            Back to Catalog
+          </a>
         </div>
       </div>
     );
@@ -177,6 +197,7 @@ class NonInjectedClusterStatus extends React.Component<ClusterStatusProps & Depe
 export const ClusterStatus = withInjectables<Dependencies, ClusterStatusProps>(NonInjectedClusterStatus, {
   getProps: (di, props) => ({
     ...props,
+    navigateToCatalog: di.inject(navigateToCatalogInjectable),
     navigateToEntitySettings: di.inject(navigateToEntitySettingsInjectable),
     entityRegistry: di.inject(catalogEntityRegistryInjectable),
     requestClusterActivation: di.inject(requestClusterActivationInjectable),
