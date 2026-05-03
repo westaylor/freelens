@@ -35,7 +35,8 @@ on:
 
 permissions:
   contents: write    # needed to attach artifacts to a release
-  id-token: write    # for keyless attestations if we add them later
+  id-token: write    # keyless build-provenance attestation (sigstore OIDC)
+  attestations: write  # actions/attest-build-provenance creates attestations
 
 concurrency:
   group: internal-release-linux-${{ github.ref }}
@@ -133,6 +134,29 @@ jobs:
             exit 1
           fi
 
+      - name: Generate SHA-256 manifest
+        working-directory: freelens/dist
+        run: |
+          # Per-artifact checksums for offline integrity check (independent
+          # of the sigstore attestation below). Users on a strict offline
+          # network can verify hashes against this file.
+          shasum -a 256 *.AppImage *.deb *.rpm 2>/dev/null > SHA256SUMS || true
+          cat SHA256SUMS
+
+      - name: Build-provenance attestation (sigstore, keyless)
+        # Generates a signed attestation binding each artifact's SHA-256 to
+        # this repo + commit + workflow run. Uses GitHub's OIDC identity —
+        # no GPG keys to manage. Verify after download with:
+        #   gh attestation verify <artifact> --repo ${{ github.repository }}
+        # See _security-review/09-build-and-release.md "Linux signing" for
+        # rationale and the alternatives we considered.
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            freelens/dist/*.AppImage
+            freelens/dist/*.deb
+            freelens/dist/*.rpm
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
@@ -141,6 +165,7 @@ jobs:
             freelens/dist/*.AppImage
             freelens/dist/*.deb
             freelens/dist/*.rpm
+            freelens/dist/SHA256SUMS
             freelens/dist/latest-linux*.yml
           retention-days: 90
 
@@ -152,6 +177,7 @@ jobs:
             freelens/dist/*.AppImage
             freelens/dist/*.deb
             freelens/dist/*.rpm
+            freelens/dist/SHA256SUMS
           fail_on_unmatched_files: false
           generate_release_notes: true
           # Attribution + signing-intent header. Auto-generated changelog

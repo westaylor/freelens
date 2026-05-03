@@ -75,8 +75,16 @@ deb:
   afterRemove: ./build/after-remove-deb.sh
   fpm:
     - ./build/apparmor-profile.aa=/etc/apparmor.d/freelens
-    - ./build/apt/freelens.asc=/etc/apt/keyrings/freelens.asc
-    - ./build/apt/freelens.sources=/etc/apt/sources.list.d/freelens.sources
+    # Internal-fork: do NOT bake upstream's apt-source into the deb.
+    # Upstream installs `freelens.sources` pointing at
+    # https://github.com/freelensapp/freelens/releases/latest/download which
+    # would silently auto-replace our hardened build with the upstream
+    # release on the user's next `apt update`. Until we stand up our own
+    # apt mirror with our own GPG key, ship the deb without an apt source
+    # — users update by manually downloading the next deb from the
+    # westaylor/freelens GitHub Release.
+    # - ./build/apt/freelens.asc=/etc/apt/keyrings/freelens.asc
+    # - ./build/apt/freelens.sources=/etc/apt/sources.list.d/freelens.sources
     - ./build/metainfo.xml=/usr/share/metainfo/app.freelens.FreelensHardened.metainfo.xml
   packageCategory: devel
 
