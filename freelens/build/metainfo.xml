@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2024-2026 Freelens Authors -->
 <component type="desktop-application">
-  <id>app.freelens.Freelens</id>
+  <id>app.freelens.FreelensHardened</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <name>Freelens</name>
