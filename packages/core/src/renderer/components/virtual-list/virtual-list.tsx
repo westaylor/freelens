@@ -62,6 +62,13 @@ function VirtualListInner<T extends { getId(): string } | string>({
   const listRef = createRef<VariableSizeList>();
   const prevItems = useRef(items);
   const prevRowHeights = useRef(rowHeights);
+  // Internal-fork hardening (upstream issue #1777):
+  // The original deps array was `[selectedItemId, [items]]`. The
+  // bracket-wrapped `[items]` allocates a NEW array literal on every
+  // render, so React's referential-equality check considered the deps
+  // changed every time -- defeating useCallback's memoization and
+  // causing the `useEffect` below to re-run on every render. Use the
+  // bare `items` reference instead.
   const scrollToSelectedItem = useCallback(() => {
     if (!selectedItemId) {
       return;
@@ -72,7 +79,7 @@ function VirtualListInner<T extends { getId(): string } | string>({
     if (index >= 0) {
       listRef.current?.scrollToItem(index, "smart");
     }
-  }, [selectedItemId, [items]]);
+  }, [selectedItemId, items]);
   const getItemSize = (index: number) => rowHeights[index];
 
   useImperativeHandle(forwardedRef, () => ({
@@ -80,10 +87,14 @@ function VirtualListInner<T extends { getId(): string } | string>({
     resetAfterIndex: (index) => listRef.current?.resetAfterIndex(index),
   }));
 
+  // The original `useEffect` here had no dependency array, meaning it
+  // re-ran on every render -- which paired with the broken useCallback
+  // above made every render call `scrollToItem` and `setOverscanCount`.
+  // Tie the effect to the inputs that actually matter.
   useEffect(() => {
     scrollToSelectedItem();
     setOverscanCount(readyOffset);
-  });
+  }, [scrollToSelectedItem, readyOffset]);
 
   useEffect(() => {
     try {

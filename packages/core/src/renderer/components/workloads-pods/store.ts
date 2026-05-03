@@ -6,7 +6,7 @@
 
 import { cpuUnitsToNumber, unitsToBytes } from "@freelensapp/utilities";
 import countBy from "lodash/countBy";
-import { observable } from "mobx";
+import { computed, makeObservable, observable } from "mobx";
 import { KubeObjectStore } from "../../../common/k8s-api/kube-object.store";
 
 import type { PodApi, PodMetricsApi } from "@freelensapp/kube-api";
@@ -25,9 +25,29 @@ export class PodStore extends KubeObjectStore<Pod, PodApi> {
     opts?: KubeObjectStoreOptions,
   ) {
     super(dependencies, api, opts);
+    makeObservable(this);
   }
 
   readonly kubeMetrics = observable.array<PodMetrics>([]);
+
+  /**
+   * Internal-fork hardening (upstream issue #1777):
+   *
+   * Indexed lookup of PodMetrics by `<namespace>/<name>`. The upstream
+   * `getPodKubeMetrics` did `kubeMetrics.find(...)` linear-scan per pod
+   * (twice -- once for CPU column, once for memory column). With 4k+
+   * pods this turns into 8k linear scans of an array that's also 4k+
+   * long -- 32M comparisons every 10s when the metrics interval ticks.
+   * MobX `@computed` makes the index rebuild only when `kubeMetrics`
+   * actually changes.
+   */
+  @computed get kubeMetricsByPodKey(): Map<string, PodMetrics> {
+    const map = new Map<string, PodMetrics>();
+    for (const metric of this.kubeMetrics) {
+      map.set(`${metric.getNs()}/${metric.getName()}`, metric);
+    }
+    return map;
+  }
 
   async loadKubeMetrics(namespace?: string) {
     try {
@@ -67,9 +87,8 @@ export class PodStore extends KubeObjectStore<Pod, PodApi> {
   getPodKubeMetrics(pod: Pod) {
     const containers = pod.getContainers();
     const empty = { cpu: 0, memory: 0 };
-    const metrics = this.kubeMetrics?.find((metric) => {
-      return [metric.getName() === pod.getName(), metric.getNs() === pod.getNs()].every((v) => v);
-    });
+    // O(1) lookup via the indexed map; see kubeMetricsByPodKey.
+    const metrics = this.kubeMetricsByPodKey.get(`${pod.getNs()}/${pod.getName()}`);
 
     if (!metrics || !metrics.containers || !containers) return { cpu: NaN, memory: NaN };
 
