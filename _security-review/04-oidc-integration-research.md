@@ -1,4 +1,4 @@
-# Freelens + OIDC IdP / the helper Integration Research
+# Freelens + OIDC Integration Research
 
 Repo state: HEAD `ed26b002` on `main`, Freelens version `1.9.0-0`.
 Investigation method: read-only static analysis of the workspace at
@@ -17,7 +17,7 @@ actual cluster auth).
   for context/cluster/user records (it does not strip or block `users[].user.exec`
   blocks — see
   `file:///Users/west/projects/freelens/packages/core/src/common/kube-helpers.ts:191-197`),
-  so a kubeconfig that `the helper` writes with `users[*].user.exec.command = "the helper"`
+  so a kubeconfig that `<helper>` writes with `users[*].user.exec.command = "<helper>"`
   should work end-to-end with no Freelens code change. Effort to wire up:
   ~0.5 day (CLI subcommand emitting `client.authentication.k8s.io/v1`
   ExecCredential JSON, plus docs).
@@ -176,7 +176,7 @@ Freelens does **not** perform cluster authentication itself. The wiring is:
    writes to its own stderr (e.g., "Open https://login... to authenticate")
    will appear in that block. The exec plugin still has full access to its
    stdin/stdout — Freelens does not pipe stdin from the user — so any
-   prompt-on-stdin behavior in `the helper` will hang the proxy forever.
+   prompt-on-stdin behavior in `<helper>` will hang the proxy forever.
 
 9. **Cluster-settings UI for exec plugins.** None. The cluster-settings
    panel only shows the kubeconfig path (read-only, click to reveal in
@@ -189,7 +189,7 @@ Freelens does **not** perform cluster authentication itself. The wiring is:
     of paths. Freelens can watch `~/.kube/config` and `~/.kube/config-oidc`
     simultaneously; each context becomes a distinct entity (clusterId is
     derived from `filePath + contextName`, so the same context name in two
-    different files yields two distinct entities). When `the helper` rewrites
+    different files yields two distinct entities). When `<helper>` rewrites
     its file (full overwrite), the diff-based reconciler removes vanished
     contexts (calling `clusterConnection.disconnect()` on them) and creates
     new ones for added contexts:
@@ -200,7 +200,7 @@ Freelens does **not** perform cluster authentication itself. The wiring is:
     the user-provided kubeconfig at the spawn path. The "Add cluster"
     catalog flow will *copy* a kubeconfig into `directoryForKubeConfigs`
     (a Freelens-owned dir), so if the user adds a cluster via that UI the
-    file becomes Freelens-owned and `the helper` cannot meaningfully refresh
+    file becomes Freelens-owned and `<helper>` cannot meaningfully refresh
     it. This is a UX trap — see Open Questions.
 
 ## Path 1: Standard Exec Credential Plugin
@@ -217,19 +217,19 @@ auth method that `kubectl` supports works in Freelens:
 - Static `users[].user.token`.
 - Client cert / key.
 
-The kubeconfig-sync watcher will pick up the file `the helper` writes (e.g.,
+The kubeconfig-sync watcher will pick up the file `<helper>` writes (e.g.,
 `~/.kube/config-oidc`), translate each context into a `KubernetesCluster`
 catalog entity, show them in the Catalog tab, and on click spawn the proxy
-which will exec the `the helper` binary per upstream client-go contract. The
+which will exec the `<helper>` binary per upstream client-go contract. The
 **file watcher already responds to file rewrites** (chokidar `change` event
 with `awaitWriteFinish` debouncing, see
-`watch-file-changes.injectable.ts:90-118`), so when `the helper clusters refresh`
+`watch-file-changes.injectable.ts:90-118`), so when `<helper> clusters refresh` (or equivalent kubeconfig-write command)
 adds or removes contexts the catalog updates within seconds.
 
 ### Sample kubeconfig stanza
 
-What `the helper` would need to write when emitting `~/.kube/config-oidc` (or
-when `the helper set-context` chooses one of multiple contexts):
+What `<helper>` would need to write when emitting `~/.kube/config-oidc` (or
+when `<helper> set-context` chooses one of multiple contexts):
 
 ```yaml
 apiVersion: v1
@@ -274,8 +274,8 @@ users:
 ```
 
 `the helper k8s-credential ...` must write a single `ExecCredential` JSON to
-stdout and exit 0. Cache freshness is up to `the helper`: if the OIDC token is
-still valid, return it from disk; if expired, run the OIDC browser flow
+stdout and exit 0. Cache freshness is up to `<helper>`: if the OIDC token is
+still valid, return it from disk; if expired, run the the OIDC identity provider browser flow
 *before* writing JSON.
 
 ```json
@@ -290,13 +290,13 @@ still valid, return it from disk; if expired, run the OIDC browser flow
 ```
 
 client-go caches this in-memory in the Go proxy process for the lifetime of
-the process and re-execs `the helper` when `expirationTimestamp` passes. There
+the process and re-execs `<helper>` when `expirationTimestamp` passes. There
 is no on-disk caching by Freelens or the proxy of this credential.
 
 ### Answers to the open investigation questions
 
 - **Does Freelens spawn the exec plugin correctly?** Yes — but indirectly.
-  Freelens spawns the Go proxy; the Go proxy is the one that execs `the helper`.
+  Freelens spawns the Go proxy; the Go proxy is the one that execs `<helper>`.
   This matters for env var inheritance and TTY access (see below).
 
 - **Env var pass-through.** Yes. Freelens spawns the Go proxy with
@@ -304,22 +304,22 @@ is no on-disk caching by Freelens or the proxy of this credential.
   (`kube-auth-proxy-server.injectable.ts:37-48`). `AWS_PROFILE`, `AWS_REGION`,
   `AWS_CONFIG_FILE`, `GOOGLE_APPLICATION_CREDENTIALS`, `KUBE_CACHE_*` etc.
   all propagate from the user's shell to Electron-main to the Go proxy to
-  `the helper`. Two caveats: (a) if `the helper login` writes credentials to
+  `<helper>`. Two caveats: (a) if `<helper> login` writes credentials to
   `~/.aws/config` after Freelens has already started, Freelens's Go proxy
   inherits whatever env was present *when Freelens was launched*. The proxy
-  re-reads the AWS credentials file on every exec (since `the helper` re-reads
+  re-reads the AWS credentials file on every exec (since `<helper>` re-reads
   it), but env vars set in a shell session *after* Freelens launch (e.g.,
   `export AWS_PROFILE=foo`) will not propagate. (b) Freelens proactively
   *deletes* `HTTPS_PROXY`/`HTTP_PROXY` from `process.env` at startup
   (`setup-proxy-env.injectable.ts:21-22`); only `HTTPS_PROXY` is restored
-  conditionally. If `the helper` reads `HTTP_PROXY`, it will see `undefined`
+  conditionally. If `<helper>` reads `HTTP_PROXY`, it will see `undefined`
   inside the proxy process.
 
 - **Interactive login flow.** This is the main weakness of Path 1. Freelens
   spawns the proxy with no TTY (Node's `child_process.spawn` defaults to
   pipes — see the spawn site cited above; `node-pty` is reserved for
-  shell-session, not for the auth proxy). When the proxy execs `the helper`,
-  `the helper` likewise has no TTY and no inherited stdin. So `the helper` cannot
+  shell-session, not for the auth proxy). When the proxy execs `<helper>`,
+  `<helper>` likewise has no TTY and no inherited stdin. So `<helper>` cannot
   prompt the user with a TUI; it must:
   1. Write a "open https://... in your browser to log in" line to stderr
      (which Freelens *will* display in the connection-error pre-block via
@@ -333,33 +333,33 @@ is no on-disk caching by Freelens or the proxy of this credential.
   The user does not see the stderr message until the credential plugin
   surfaces it (which client-go does only on a non-zero exit, by default).
   If the plugin succeeds, stderr is silently consumed. So the practical
-  pattern is: have `the helper k8s-credential` *never* hang waiting for human
+  pattern is: have `<helper> k8s-credential` *never* hang waiting for human
   attention — it should fail fast (exit non-zero with a clear message
   "run 'the helper login <account>' first") if the token is expired and a
   browser flow is required, then let the user re-trigger after running
-  `the helper login` separately. This works but is a worse UX than Path 2.
+  `<helper> login` separately. This works but is a worse UX than Path 2.
 
-- **Hang behavior.** If `the helper k8s-credential` blocks indefinitely (e.g.,
+- **Hang behavior.** If `<helper> k8s-credential` blocks indefinitely (e.g.,
   waiting on the OAuth callback for hours), the Go proxy waits with it,
   which means no API responses, which means Freelens shows the spinner
   forever. There is no proxy-side timeout in the `client-go` exec auth
   defaults. Freelens has its own 30s and 4h timeouts for HTTP requests
   (`kube-auth-proxy-server.injectable.ts:25-26`) but those are HTTP-level,
-  not exec-plugin-level. **Recommendation: `the helper k8s-credential`
+  not exec-plugin-level. **Recommendation: `<helper> k8s-credential`
   enforces its own short timeout (e.g., 30s) and exits non-zero if a
   fresh login is required.**
 
-- **What `the helper` would need to expose for Path 1:**
+- **What `<helper>` would need to expose for Path 1:**
   1. A `the helper k8s-credential --cluster X --account Y` subcommand that
      speaks the `client.authentication.k8s.io/v1` ExecCredential contract
      (read `KUBERNETES_EXEC_INFO` env var on stdin if needed; write
      ExecCredential JSON to stdout; exit 0 on success).
-  2. A `the helper clusters refresh` that writes `~/.kube/config-oidc` with
-     one user-block per cluster pointing back at `the helper k8s-credential`.
-  3. Short-circuit if the token is fresh (cache it on disk in `~/.cache/the helper/`
+  2. A `<helper> clusters refresh` (or equivalent kubeconfig-write command) that writes `~/.kube/config-oidc` with
+     one user-block per cluster pointing back at `<helper> k8s-credential`.
+  3. Short-circuit if the token is fresh (cache it on disk in `~/.cache/<helper>/`
      mode 0600, NOT in the kubeconfig).
   4. Hard timeout (~30s) on `k8s-credential`; on timeout, exit non-zero
-     with a message instructing the user to run `the helper login`.
+     with a message instructing the user to run `<helper> login`.
 
 ### What does NOT work out of the box (Path 1 alone)
 
@@ -376,7 +376,7 @@ is no on-disk caching by Freelens or the proxy of this credential.
 ### Available extension API surface (cited)
 
 Lens-style extension API is alive and not stripped. The relevant hooks for a
-`freelens-oidc-helper` extension:
+`freelens-oidc` extension:
 
 - **Renderer-side cluster pre-run hook.**
   `Renderer.Catalog.catalogEntities.addOnBeforeRun((event) => Promise<void>)`
@@ -393,7 +393,7 @@ Lens-style extension API is alive and not stripped. The relevant hooks for a
   `Main.LensExtension.addCatalogSource(id, IObservableArray | IComputedValue<CatalogEntity[]>)`
   lets a main-process extension push `KubernetesCluster` entities directly
   into the catalog without writing a kubeconfig file. Useful if we want
-  Freelens's Catalog tab to show the live `the helper accounts list` /
+  Freelens's Catalog tab to show the live `<helper> accounts list` (or equivalent listing command) /
   `the helper clusters list` output without going through the file watcher.
   - `file:///Users/west/projects/freelens/packages/core/src/extensions/lens-main-extension.ts:71-81`
   - Caveat: a `KubernetesCluster` entity still needs a `kubeconfigPath` and
@@ -417,12 +417,12 @@ Lens-style extension API is alive and not stripped. The relevant hooks for a
   - Type: `file:///Users/west/projects/freelens/packages/core/src/renderer/components/command-palette/registered-commands/commands.ts:29-56`
 
 - **Welcome screen tile.** `Renderer.LensExtension.welcomeMenus: WelcomeMenuRegistration[]`
-  for a "Log in with OIDC" tile on first launch.
+  for a "Log in via OIDC" tile on first launch.
   - Type: `file:///Users/west/projects/freelens/packages/core/src/renderer/components/welcome/welcome-menu-items/welcome-menu-registration.ts`
 
 - **Custom protocol handlers.** Extensions can register `freelens://extension/<name>/...`
-  routes — useful so that the OIDC browser callback can deep-link back
-  into Freelens (e.g., `freelens://extension/freelens-oidc-helper/login-complete?account=X`).
+  routes — useful so that the the OIDC identity provider browser callback can deep-link back
+  into Freelens (e.g., `freelens://extension/freelens-oidc/login-complete?account=X`).
   - `file:///Users/west/projects/freelens/packages/core/src/extensions/lens-extension.ts:38`
     (`protocolHandlers: ProtocolHandlerRegistration[]`)
   - Routing in main:
@@ -449,32 +449,32 @@ In-tree extension example: there is none — `packages/cluster-sidebar` and
 app, not actual extensions. The extension API is exercised entirely via
 external npm packages (the legacy Lens model). No in-tree usage to mimic.
 
-### Sketch of `freelens-oidc-helper`
+### Sketch of `freelens-oidc`
 
 Two files, ~300 LOC:
 
 - **`main.ts`**
-  - On `onActivate`: register a `the helper` catalog source. Run `the helper
-    accounts list` and `the helper clusters refresh` once at startup; emit a
+  - On `onActivate`: register a `<helper>` catalog source. Run `the helper
+    accounts list` and `<helper> clusters refresh` (or equivalent kubeconfig-write command) once at startup; emit a
     computed `KubernetesCluster[]` whose entities point at a
     plugin-managed kubeconfig (`<extensionDataDir>/kubeconfig`).
-  - Periodically re-run `the helper clusters refresh` (every 30 min) and
+  - Periodically re-run `<helper> clusters refresh` (or equivalent kubeconfig-write command) (every 30 min) and
     update the source.
   - Provide a `terminalShellEnvModifier` that sets `KUBECONFIG`, `AWS_PROFILE`,
     `AWS_REGION` per cluster.
-  - Listen for `freelens://extension/freelens-oidc-helper/login-complete` to
-    rebuild the catalog after a manual `the helper login` driven from the
+  - Listen for `freelens://extension/freelens-oidc/login-complete` to
+    rebuild the catalog after a manual `<helper> login` driven from the
     welcome screen.
 
 - **`renderer.ts`**
   - Register a command "the helper: log in to account..." that opens a small
     React picker, calls main via IPC to run `the helper login <account>`,
     waits for the OAuth round-trip, and refreshes catalog.
-  - Register `addOnBeforeRun` hook: when a `the helper`-owned KubernetesCluster
+  - Register `addOnBeforeRun` hook: when a `<helper>`-owned KubernetesCluster
     is run, check token validity (via IPC to main); if expired, open the
     OIDC browser flow (`Common.Util.openExternal`) and `await` callback
     over the protocol handler before letting onRun proceed.
-  - Register a welcome-menu tile "Log in with OIDC".
+  - Register a welcome-menu tile "Log in via OIDC".
 
 ### Hooks that are MISSING (would need a fork or upstream PR even if we go Path 2)
 
@@ -482,7 +482,7 @@ Two files, ~300 LOC:
   *renderer*-side hook tied to entity activation; it runs once when the user
   clicks. It does **not** fire when the proxy auto-spawns due to background
   refresh calls (`refreshConnectionStatus` every 30s; `refresh` triggered
-  by mobx reactions on preferences). If `the helper k8s-credential` does the
+  by mobx reactions on preferences). If `<helper> k8s-credential` does the
   right thing on every exec, this is fine — but if we wanted to replace
   the exec plugin contract entirely with an extension callback, we cannot.
 - **A pre-spawn hook in main.** `clusterConnection.activate()` →
@@ -500,7 +500,7 @@ Two files, ~300 LOC:
 
 ### Effort estimate
 
-- ~3-5 days for an MVP `freelens-oidc-helper` extension (main + renderer +
+- ~3-5 days for an MVP `freelens-oidc` extension (main + renderer +
   protocol handler + welcome tile + command palette + IPC).
 - + ~1 day for packaging/distribution as an npm package.
 - + ~1 day to add a small core PR for a `before-cluster-activate` injection
@@ -513,12 +513,12 @@ Not recommended. The smallest fork patch surface, if forced, would be:
 
 1. **`packages/core/src/main/cluster/kube-auth-proxy-server.injectable.ts`**
    (lines 37-48): inject a `beforeProxySpawn(cluster, env)` async hook that
-   can mutate env or block on a `the helper login`. ~30 LOC.
+   can mutate env or block on a `<helper> login`. ~30 LOC.
 2. **`packages/core/src/main/catalog-sources/kubeconfig-sync/manager.ts`**:
    add a default sync entry pointing at `~/.kube/config-oidc`. ~5 LOC.
 3. **`packages/core/src/renderer/components/cluster-manager/cluster-status.tsx`**:
    make the Reconnect button also fire a `before-cluster-activate` IPC. ~15 LOC.
-4. **(Optional)** Bake a `the helper` binary into `binaries/client/...` next
+4. **(Optional)** Bake a `<helper>` binary into `binaries/client/...` next
    to `freelens-k8s-proxy` so users don't install it separately.
 
 But all of (1)-(3) can be done in an extension *without* a fork, given the
@@ -534,10 +534,10 @@ Effort: ~5-10 days for the patches, plus ongoing 1-2 days/release rebase work.
 
 **Ship Path 1 immediately. Build a Path-2 extension on top for UX.** Justifications:
 
-1. **Threat model: keep `the helper` external and update it independently.**
-   Path 1 does this perfectly — `the helper` is just a binary that produces
+1. **Threat model: keep `<helper>` external and update it independently.**
+   Path 1 does this perfectly — `<helper>` is just a binary that produces
    ExecCredential JSON, and Freelens (via the Go proxy) treats it as
-   opaque. We can ship `the helper` security fixes without a Freelens release.
+   opaque. We can ship `<helper>` security fixes without a Freelens release.
    Path 3 inverts that.
 
 2. **Threat model: short-lived tokens never cached on disk by Freelens.**
@@ -546,7 +546,7 @@ Effort: ~5-10 days for the patches, plus ongoing 1-2 days/release rebase work.
    (`kubeconfig-manager.ts:131`), but that file contains **only** the
    localhost proxy URL and a `username: lens / password: fake` placeholder
    user — no real bearer token is ever written there. Real tokens live
-   only in (a) `the helper`'s own cache (which the helper controls) and (b)
+   only in (a) `<helper>`'s own cache (which the helper controls) and (b)
    the Go proxy's in-memory client-go credential cache for the lifetime
    of the spawned proxy process (which terminates on cluster disconnect
    per `proxyProcess.kill()` at
@@ -554,7 +554,7 @@ Effort: ~5-10 days for the patches, plus ongoing 1-2 days/release rebase work.
    This is the desired property and Path 1 preserves it. Paths 2 and 3
    preserve it too as long as we do not change the credential flow itself.
 
-3. **Effort vs. value.** Path 1 is hours of `the helper` work and zero Freelens
+3. **Effort vs. value.** Path 1 is hours of `<helper>` work and zero Freelens
    work. Path 2 is days of work for a polished UX. Path 3 is weeks of work
    forever. Start with Path 1 to validate the contract works in production,
    then ladder to Path 2 once we know the auth surface holds up.
@@ -562,7 +562,7 @@ Effort: ~5-10 days for the patches, plus ongoing 1-2 days/release rebase work.
 4. **No real Path-1 risk.** The validation pipeline preserves the `exec`
    stanza unchanged; the Go proxy is upstream client-go; the env is
    passed through fully. The only concern is the interactive-login UX,
-   which is mitigated by making `the helper k8s-credential` fast-fail when
+   which is mitigated by making `<helper> k8s-credential` fast-fail when
    a fresh browser login is required and showing a clear stderr message.
 
 ## Open Questions
@@ -579,14 +579,14 @@ These need a hands-on test, not just code reading:
    actually produce KubernetesCluster entities even when the file doesn't
    exist yet?** chokidar's `add` event fires on file creation, so it
    *should* — but verify the user can pre-configure the sync entry before
-   running `the helper login` for the first time.
+   running `<helper> login` for the first time.
 
 3. **What does the "Reconnect" button do when the exec plugin returns a
    freshly-rotated token?** Believed to work (Reconnect just restarts the
    proxy), but verify it does not somehow surface an `onBeforeRun` we
    haven't accounted for.
 
-4. **Stderr surfacing latency.** When `the helper k8s-credential` writes
+4. **Stderr surfacing latency.** When `<helper> k8s-credential` writes
    "Open https://..." to stderr and then exits non-zero, how quickly does
    that line show up in the cluster-status UI? The IPC path is real-time
    per `data` event, but verify under realistic latency.
@@ -600,7 +600,7 @@ These need a hands-on test, not just code reading:
 6. **Default-clusters dir vs. the helper-managed dir collision.** If a user
    was added a cluster via "Add cluster" UI (which copies the kubeconfig
    into `directoryForKubeConfigs` — Freelens-owned), Freelens manages that
-   file. We must ensure `the helper` only writes to its own path
+   file. We must ensure `<helper>` only writes to its own path
    (`~/.kube/config-oidc` or extension-owned path). Document clearly.
 
 7. **Extension API stability across Freelens versions.** The Lens-style
@@ -610,16 +610,16 @@ These need a hands-on test, not just code reading:
 
 8. **Behavior of the Go proxy on `KUBECONFIG_CONTEXT` switching mid-session.**
    The proxy is spawned with a fixed `KUBECONFIG_CONTEXT` and restarted
-   when the cluster preferences change. Confirm that when `the helper set-context`
+   when the cluster preferences change. Confirm that when `<helper> set-context`
    *rewrites* the kubeconfig with a different context as `current-context`
    but the proxy is already running with `KUBECONFIG_CONTEXT=old-context`,
    the proxy keeps using the old context. (Expected behavior — and good,
    because it means the user controls the switch via the catalog click,
-   not by `the helper set-context`.)
+   not by `<helper> set-context`.)
 
 9. **Token behavior across multiple simultaneous clusters from the same
    account.** Each cluster spawns its own `freelens-k8s-proxy` process,
-   each of which execs `the helper` independently. Two simultaneously-open
+   each of which execs `<helper>` independently. Two simultaneously-open
    clusters in the same account will issue two ExecCredential calls that
-   should both hit the the helper on-disk token cache. Verify there is no
+   should both hit the helper on-disk token cache. Verify there is no
    lock contention causing one of them to hang.

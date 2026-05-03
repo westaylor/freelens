@@ -73,7 +73,7 @@ Down from the audit baseline of `25 high / 24 moderate / 3 low`.
 | H1 `nodeIntegration: true` → `false` | 2-4 week refactor (extension API + renderer depend on Node integration). Tier 3 in the executive summary. |
 | H2 CSP `'unsafe-eval'` removal | Testing-intensive (Monaco / Handlebars / extension renderers may rely on eval). Tier 2 in the summary. |
 | H6 Sandboxed extension model | Multi-week refactor or "disable extensions entirely" decision. Defer to product/security policy. |
-| H7 kubeconfig `exec`-block warning | UX needs design alongside the the helper integration. Better done in the same change as Path 1 from `04-oidc-integration-research.md`. |
+| H7 kubeconfig `exec`-block warning | UX needs design alongside the OIDC integration. Better done in the same change as Path 1 from `04-oidc-integration-research.md`. |
 | Vendoring `@ogre-tools/*` | Multi-day work. Pinning + Renovate label is the realistic interim. Plan: copy source into `packages/vendored/` and rewrite imports; can be its own PR. |
 | Tier 2 #15 stricter CSP | Same as H2 — testing-intensive, defer. |
 | Tier 2 #16 remove `http-proxy-node16` override | Audit follow-up; not a blocker. |
@@ -81,7 +81,7 @@ Down from the audit baseline of `25 high / 24 moderate / 3 low`.
 | Tier 3 #22 Sandboxed / disabled extensions | Policy decision. |
 | Tier 3 #23 per-cluster `allowUntrustedCAs` | Small UX feature. |
 
-### OIDC / the helper integration
+### OIDC integration
 
 Deferred per direct user instruction: "we will leave the oidc integration until after we have a new working build I can test with on my work macbook". The roadmap is in `04-oidc-integration-research.md` — Path 1 (exec credential plugin) is the recommended path and works against the current build out of the box.
 
@@ -124,4 +124,4 @@ pnpm start:darwin
 
 ## Next session
 
-After you boot a build on your Mac and confirm it works, the natural next step is the the helper integration (Path 1 from `04-oidc-integration-research.md`) plus H7's exec-block confirmation UX, as a single coherent change.
+After you boot a build on your Mac and confirm it works, the natural next step is the OIDC integration (Path 1 from `04-oidc-integration-research.md`) plus H7's exec-block confirmation UX, as a single coherent change.

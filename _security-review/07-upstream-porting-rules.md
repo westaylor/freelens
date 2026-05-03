@@ -66,7 +66,7 @@ silently regress us.
 | `packages/core/src/renderer/protocol-handler/bind-protocol-add-route-handlers/bind-protocol-add-route-handlers.tsx` | The `/extensions/install` route is a no-op that shows a notification. | KEEP the no-op. Never restore `attemptInstallByInfo({...})`. | H3, commit `2e42b82b`. |
 | `packages/core/src/main/electron-app/runnables/setup-ipc-main-handlers/setup-ipc-main-handlers.ts` | The broadcast-main-channel handler is allowlist-gated and calls `view.send` directly (NOT `broadcastMessage`, which would re-trigger ipcMain.listeners). | KEEP. If upstream adds a new legitimate channel, add it to `rendererBroadcastAllowlist`. | H4, commit `2e42b82b`. |
 | `packages/core/src/features/shell-sync/main/compute-unix-shell-environment.injectable.ts` | Tempfile-based env protocol; no `Electron -e ...` probe. | KEEP. EDR will quarantine if upstream's pattern is restored. | Commit `78afb133`, issues #1668/#1696. |
-| `packages/core/src/main/shell-session/shell-session.ts` | `env.KUBECONFIG = this.cluster.kubeConfigPath.get()` (with fallback to proxyKubeconfigPath). | KEEP. Required for OIDC integration (the helper) and SOCKS proxy. | Commit `9ddc67a9`, issue #1671. |
+| `packages/core/src/main/shell-session/shell-session.ts` | `env.KUBECONFIG = this.cluster.kubeConfigPath.get()` (with fallback to proxyKubeconfigPath). | KEEP. Required for OIDC integration and SOCKS proxy. | Commit `9ddc67a9`, issue #1671. |
 | `packages/core/src/main/helm/validate-helm-arg.ts` (new file) | Helm argv validators. | Keep file. If upstream adds their own, choose ours and migrate any new validators in. | M4, commit `a3de2b68`. |
 | `packages/core/src/main/helm/install-helm-chart.injectable.ts`, `.../helm-service/update-helm-release.injectable.ts` | Each calls `validateHelm{ChartSpec,ReleaseName,Namespace,Version}` first. | KEEP the validation calls. | M4. |
 | `packages/ensure-binaries/src/index.mts` | `StreamHasher` + `checksumUrl()` per downloader; SHA-256 verify before chmod. | KEEP. If upstream adds a different checksum scheme, keep ours unless the new one is stricter. | H5, commit `e75f574f`. |
@@ -120,7 +120,7 @@ git grep -nE 'from "(crypto-js|tempy|typed-regex)"' -- '*.ts' '*.tsx'
 
 ## OIDC integration (Path 1)
 
-The terminal-kubeconfig fix (`packages/core/src/main/shell-session/shell-session.ts`, commit `9ddc67a9`) is a prerequisite for the planned `the helper k8s-credential` exec credential plugin. Don't touch that file unless you understand the OIDC plan in `04-oidc-integration-research.md`.
+The terminal-kubeconfig fix (`packages/core/src/main/shell-session/shell-session.ts`, commit `9ddc67a9`) is a prerequisite for the planned exec-credential helper exec credential plugin. Don't touch that file unless you understand the OIDC plan in `04-oidc-integration-research.md`.
 
 ---
 

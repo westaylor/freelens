@@ -2,7 +2,7 @@
 
 **Repository:** [freelensapp/freelens](https://github.com/freelensapp/freelens) at HEAD `ed26b002` (1.9.0-0)
 **Reviewer:** Internal security review for corporate-laptop deployment connecting to AWS / GCP / Azure managed Kubernetes clusters.
-**Scope:** Full source review, supply-chain audit, network-egress audit, and OIDC/OIDC integration research.
+**Scope:** Full source review, supply-chain audit, network-egress audit, and OIDC integration research.
 **Date:** 2026-05-03
 
 This document is the top-level summary. Detailed findings live in four appendix reports:
@@ -10,7 +10,7 @@ This document is the top-level summary. Detailed findings live in four appendix 
 - [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) — Electron, IPC, kubeconfig, extensions, deep links, CSP, crypto-js usage.
 - [02-supply-chain-audit.md](file:///Users/west/projects/freelens/_security-review/02-supply-chain-audit.md) — Direct deps, CVE scan, lockfile hygiene, patches, build-time hooks, bundled binaries.
 - [03-network-egress-audit.md](file:///Users/west/projects/freelens/_security-review/03-network-egress-audit.md) — Every outbound URL, telemetry sweep, build-vs-runtime classification, allowlist for the network team.
-- [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) — How to wire Freelens into an OIDC exec-credential helper. **This is the second deliverable.**
+- [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) — How to wire Freelens into the OIDC exec-credential helper. **This is the second deliverable.**
 
 ---
 
@@ -111,7 +111,7 @@ This is the actionable deliverable. Each row is independent — apply them in or
 | # | Patch | Effort | Source |
 |---|---|---|---|
 | 11 | **Add SHA-256 checksum verification to `@freelensapp/ensure-binaries`.** Pull official checksums from `dl.k8s.io/release/<version>/SHA256SUMS` and `get.helm.sh/helm-<v>-<os>-<arch>.tar.gz.sha256sum` at fetch time, fail the build on mismatch. Same for the `freelens-k8s-proxy` GitHub release artifact (verify GH release attestation if available, otherwise pin a hash you reviewed once and store it in your fork). | 2-4 hrs | [02-supply-chain-audit.md](file:///Users/west/projects/freelens/_security-review/02-supply-chain-audit.md) §`ensure-binaries`, [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) H5 |
-| 12 | **Add an `exec`-block warning to the kubeconfig add flow.** When a kubeconfig contains `users[].user.exec`, surface an explicit confirmation dialog naming the command that will run. (Note: the helper integration depends on this working — see [04](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) — so we want a "trust this command" allowlist, not a hard block.) | 4-8 hrs | [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) H7 |
+| 12 | **Add an `exec`-block warning to the kubeconfig add flow.** When a kubeconfig contains `users[].user.exec`, surface an explicit confirmation dialog naming the command that will run. (Note: OIDC integration depends on this working — see [04](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) — so we want a "trust this command" allowlist, not a hard block.) | 4-8 hrs | [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) H7 |
 | 13 | **Argv-validate helm chart and release names** (regex `^[a-z0-9._-]{1,53}$`) before invoking `helm`. | 1-2 hrs | [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) M4 |
 | 14 | **Replace `crypto-js` with Node `crypto` / `Buffer`** at the 3 call sites. | 1-2 hrs | [02-supply-chain-audit.md](file:///Users/west/projects/freelens/_security-review/02-supply-chain-audit.md) §4 |
 | 15 | **Tighten CSP** — remove `unsafe-eval`, add `default-src 'none'`, `connect-src https://localhost:* https://*.renderer.freelens.app:*`, `object-src 'none'`, `frame-ancestors 'none'`. Verify Monaco / Handlebars / extension renderers still work; the `unsafe-eval` may be load-bearing for one of these — if so, scope it via a script-hash. | 4-8 hrs (testing intensive) | [01-source-code-review.md](file:///Users/west/projects/freelens/_security-review/01-source-code-review.md) H2 |
@@ -131,20 +131,20 @@ This is the actionable deliverable. Each row is independent — apply them in or
 
 ---
 
-## OIDC integration Integration — TL;DR
+## OIDC Integration — TL;DR
 
 The full recommendation is in [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md). One paragraph here:
 
 **Path 1 (standard k8s exec credential plugin) works out of the box and is the recommended approach.** Freelens delegates all real cluster authentication to a bundled Go binary (`freelens-k8s-proxy`), which is built on upstream `k8s.io/client-go` — so `users[].user.exec` plugins behave exactly like they do under `kubectl`. The kubeconfig validator preserves `exec` and `auth-provider` fields verbatim ([kube-helpers.ts:191](file:///Users/west/projects/freelens/packages/core/src/common/kube-helpers.ts)), the parent process environment is passed through to the proxy ([kube-auth-proxy-server.injectable.ts:37-48](file:///Users/west/projects/freelens/packages/core/src/main/cluster/kube-auth-proxy-server.injectable.ts)), and **the user's real OIDC tokens are never written to a Freelens-owned file** — the temp kubeconfig Freelens generates points only at `localhost` with placeholder credentials. Tokens live in the helper's cache and the Go proxy's in-memory client-go cache (process lifetime).
 
-**The work to do:** add a `the helper k8s-credential` subcommand that emits the [`client.authentication.k8s.io/v1` ExecCredential JSON contract](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to stdout. Have `the helper clusters refresh` write a kubeconfig at `~/.kube/config-oidc` whose users use `exec.command = "the helper"`. Point Freelens's kubeconfig sync at `~/.kube/config-oidc`. Done. Sample kubeconfig stanza is in [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) §"Sample kubeconfig stanza".
+**The work to do:** add a `<helper> k8s-credential` subcommand that emits the [`client.authentication.k8s.io/v1` ExecCredential JSON contract](https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins) to stdout. Have `<helper> clusters refresh` (or equivalent kubeconfig-write command) write a kubeconfig at `~/.kube/config-oidc` whose users use `exec.command = "<helper>"`. Point Freelens's kubeconfig sync at `~/.kube/config-oidc`. Done. Sample kubeconfig stanza is in [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md) §"Sample kubeconfig stanza".
 
-**Optional Path 2** (a small `freelens-oidc-helper` extension) gives a polished UX on top of Path 1 — a "Log in with OIDC" button in the catalog, a custom catalog source for cluster discovery, a pre-cluster-click hook to refresh tokens silently. The extension API surface for this is verified present in 04. **Path 3 (forking the app for this purpose) is not recommended** — every hook needed already exists.
+**Optional Path 2** (a small `freelens-oidc` extension) gives a polished UX on top of Path 1 — a "Log in via OIDC" button in the catalog, a custom catalog source for cluster discovery, a pre-cluster-click hook to refresh tokens silently. The extension API surface for this is verified present in 04. **Path 3 (forking the app for this purpose) is not recommended** — every hook needed already exists.
 
 **Open questions** (require hands-on testing rather than code reading):
 1. Token re-exec on expiry mid-session — does Freelens re-invoke the exec plugin transparently, or does the tab go dead?
 2. Reconnect button bypasses `onBeforeRun` — needs verification.
-3. Stderr forwarding latency from the exec plugin — does an interactive the helper login flow surface its progress in the cluster status pane?
+3. Stderr forwarding latency from the exec plugin — does an interactive OIDC login flow surface its progress in the cluster status pane?
 
 These are listed in the "Open Questions" section of [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md).
 
@@ -179,7 +179,7 @@ For confidence, here is a list of things we explicitly checked and found OK. The
 ## How to Use This Report
 
 1. **For the security/eng decision** → read this document. It's the actionable summary.
-2. **For the helper integration planning** → read [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md). Hand it to whoever owns the helper — it specifies the JSON contract they need to emit.
+2. **For OIDC integration planning** → read [04-oidc-integration-research.md](file:///Users/west/projects/freelens/_security-review/04-oidc-integration-research.md). Hand it to whoever owns the OIDC helper tool — it specifies the JSON contract they need to emit.
 3. **For the network team's allowlist** → the *Domain Allowlist Summary* table at the top of [03-network-egress-audit.md](file:///Users/west/projects/freelens/_security-review/03-network-egress-audit.md) is purpose-built for them.
 4. **For the engineer applying fork patches** → use the prioritized checklist in this document, then dive into the appendix sections referenced per row.
 5. **For the supply-chain owner** → [02-supply-chain-audit.md](file:///Users/west/projects/freelens/_security-review/02-supply-chain-audit.md) has the per-dep table and the `pnpm audit` output saved at `/tmp/claude/freelens-audit.json`.

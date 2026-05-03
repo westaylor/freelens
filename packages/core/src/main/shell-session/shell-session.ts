@@ -382,7 +382,7 @@ export abstract class ShellSession {
     }
 
     env.PTYPID = process.pid.toString();
-    // Internal-fork hardening (upstream issue #1671 + the helper OIDC plan):
+    // Internal-fork hardening (upstream issue #1671 + OIDC integration plan):
     //
     // Upstream points the terminal's KUBECONFIG at the lens-proxy kubeconfig
     // (which talks to localhost:<port> with bearer tokens stripped). That
