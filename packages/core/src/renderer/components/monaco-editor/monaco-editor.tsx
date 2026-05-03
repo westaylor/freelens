@@ -224,6 +224,60 @@ class NonInjectedMonacoEditor extends React.Component<MonacoEditorProps & Depend
       ...this.options,
     });
 
+    // Internal-fork hardening (upstream issue #721):
+    //
+    // Cmd+V / Ctrl+V doesn't paste into Monaco's Find Widget search
+    // input. The Find Widget's input lives inside the editor's DOM and
+    // Monaco's keybinding service intercepts the V keystroke at the
+    // editor level, but the editor's clipboardPasteAction targets the
+    // editor model -- not the find input -- so the keystroke is
+    // effectively swallowed. Electron's default Edit-menu role:'paste'
+    // also doesn't fire because the editor's keydown handler stops the
+    // event before it reaches the Electron-roles layer.
+    //
+    // Capture-phase keydown listener on the editor container: when the
+    // user is typing inside one of the widget inputs (find, replace,
+    // and the various .monaco-inputbox descendants) and presses Cmd+V
+    // / Ctrl+V, read clipboard text and insert it at the input's
+    // selection. We DON'T touch the keystroke when focus is in the
+    // editor body itself -- Monaco's normal paste path is fine there.
+    const containerNode = this.editor.getContainerDomNode();
+    const onWidgetPaste = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || (event.key !== "v" && event.key !== "V")) return;
+
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+
+      // Only intervene for input/textarea descendants of monaco's
+      // widget panels (find, replace, suggest, command palette).
+      const widgetHost = target.closest(
+        ".find-widget, .editor-widget, .monaco-inputbox, .quick-input-widget",
+      );
+      if (!widgetHost) return;
+      if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      void navigator.clipboard.readText().then((text) => {
+        if (!text) return;
+        const input = target;
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        const before = input.value.slice(0, start);
+        const after = input.value.slice(end);
+        input.value = `${before}${text}${after}`;
+        const caret = start + text.length;
+        input.setSelectionRange(caret, caret);
+        // Notify React / Monaco listeners.
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }).catch((err) => {
+        this.logger.warn("[MONACO]: widget paste failed", err);
+      });
+    };
+    containerNode.addEventListener("keydown", onWidgetPaste, /* useCapture */ true);
+
     this.logger.info(`[MONACO]: editor created for language=${language}, theme=${theme}`, this.logMetadata);
     this.validateLazy(); // validate initial value
     this.restoreViewState(this.model); // restore previous state if any
@@ -265,6 +319,7 @@ class NonInjectedMonacoEditor extends React.Component<MonacoEditorProps & Depend
       () => onDidLayoutChangeDisposer.dispose(),
       () => onValueChangeDisposer.dispose(),
       () => onContentSizeChangeDisposer.dispose(),
+      () => containerNode.removeEventListener("keydown", onWidgetPaste, /* useCapture */ true),
       this.bindResizeObserver(),
     );
   }
