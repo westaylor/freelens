@@ -69,8 +69,16 @@ jobs:
           key: pnpm-audit-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: pnpm-audit-
 
+      # Same install-retry pattern as internal-build-check; the first
+      # install can race on bin/ symlink propagation.
       - name: Install
-        run: pnpm install --color=always --prefer-offline --frozen-lockfile
+        id: install-pnpm
+        run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
+        continue-on-error: true
+
+      - name: Install (retry)
+        if: steps.install-pnpm.outcome == 'failure'
+        run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
 
       - name: Audit production dependencies
         id: audit
