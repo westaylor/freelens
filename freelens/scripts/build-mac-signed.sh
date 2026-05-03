@@ -209,10 +209,22 @@ if [ -n "$UPLOAD_TAG" ]; then
   if ! gh release view "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" >/dev/null 2>&1; then
     if [ "$UPLOAD_CREATE" -eq 1 ]; then
       echo "==> Release $UPLOAD_TAG doesn't exist; creating as draft"
+      # Default release notes make the upstream attribution and the
+      # signing-purpose explicit. Rationale in
+      # _security-review/09-build-and-release.md "Attribution and
+      # signing intent". Edit the draft in the GH UI before publishing
+      # if you want to add changelog detail.
+      DRAFT_NOTES="**Internal build of [freelensapp/freelens](https://github.com/freelensapp/freelens) for company use.**
+
+This is a hardened fork; the changes against upstream are documented in [\`_security-review/\`](https://github.com/westaylor/freelens/tree/internal/hardening/_security-review) on the \`internal/hardening\` branch.
+
+Freelens is MIT-licensed and authored by the Freelens Authors and OpenLens Authors. This build is signed by our team's \`Developer ID Application\` certificate so the macOS binary passes corporate Gatekeeper / EDR policy.
+
+We do not claim authorship of the source code."
       gh release create "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" \
         --draft \
         --title "$UPLOAD_TAG" \
-        --notes "Internal build. Linux artifacts come from the internal-release-linux GH workflow on tag push; macOS artifacts are uploaded manually after local signed build."
+        --notes "$DRAFT_NOTES"
     else
       echo "ERROR: release $UPLOAD_TAG does not exist on the remote." >&2
       echo "       Either push the tag first (the Linux release workflow will create the release)," >&2

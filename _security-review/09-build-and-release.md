@@ -5,6 +5,100 @@ internal `westaylor/freelens` fork: where each artifact gets built,
 how it's signed, what secrets exist where, and the cost picture
 against GitHub Actions free-tier minutes.
 
+## Attribution and signing intent
+
+**This is a fork of upstream [`freelensapp/freelens`](https://github.com/freelensapp/freelens) under its MIT license.**
+We are not the authors of Freelens. The upstream attribution stays
+intact in everything we ship:
+
+| Artifact | Upstream value (preserved) |
+|---|---|
+| `LICENSE` | MIT, "Copyright (c) 2024-2026 Freelens Authors" + "Copyright (c) 2022 OpenLens Authors" |
+| `freelens/package.json` `productName` | `Freelens` |
+| `freelens/package.json` `copyright` | `© 2024-2026 Freelens Authors` |
+| `freelens/package.json` `homepage` | `https://freelens.app` |
+| `electron-builder.yml` `appId` | `app.freelens.Freelens` (so macOS treats it as the same application) |
+| In-app About dialog `applicationCopyright` | `© 2024-2026 Freelens Authors` |
+
+**Why we re-sign with our own Developer ID cert:**
+
+macOS Gatekeeper trusts a binary based on the *signer*, not the
+project. Corporate IT policy (and our internal EDR) requires that any
+desktop binary running on a company laptop be signed by a publisher
+the company knows. Apple's signing system literally identifies the
+publisher as "the holder of this Developer ID cert" — that's us, the
+internal-fork operator. The signing is a technical attestation that
+*this binary was built by our pipeline and has not been tampered with
+since*; it makes no claim about who authored the source code.
+
+The same pattern is how every Linux distribution maintainer signs
+upstream tarballs they didn't write, how Homebrew bottle-signs
+upstream releases, and how a company-internal apt mirror signs
+packages it didn't author. The signature attests transit integrity,
+not authorship.
+
+**What we are NOT doing:**
+
+- Renaming the app to `Freelens [Internal]`, `WTaylor Freelens`, or
+  similar. The product is still Freelens.
+- Replacing the icon, splash, or any branding asset.
+- Removing or modifying the upstream LICENSE / NOTICE / About dialog
+  copyright lines.
+- Claiming the source code as our own work in any commit, README,
+  or documentation. Our hardening commits live in
+  `_security-review/` and per-commit comments cite the originating
+  upstream issue number.
+- Publishing this fork to public package registries under the
+  `@freelensapp/*` namespace. (Internal npm mirror only, if at all.)
+
+**What we ARE doing:**
+
+- Maintaining a fork that we audit and harden for corporate
+  deployment. Every divergence from upstream is documented in
+  `_security-review/00-EXECUTIVE-SUMMARY.md` and `07-upstream-porting-rules.md`.
+- Re-signing the macOS binary with our `Developer ID Application`
+  cert so it passes Gatekeeper for our internal users without the
+  "unidentified developer" dialog.
+- Building Linux artifacts in our CI for our internal apt / image
+  mirror.
+- Disclosing security-relevant changes upstream when appropriate
+  (separately from this fork's day-to-day operation).
+
+**License obligations on the binaries we distribute:**
+
+MIT requires the copyright notice and the permission notice to be
+included in "all copies or substantial portions of the Software."
+We satisfy this by:
+
+- Shipping the unmodified `LICENSE` file inside the `.app` bundle and
+  the Linux packages (electron-builder includes it automatically via
+  the project root).
+- Preserving the in-app About dialog's copyright line.
+- Preserving the per-source-file MIT header comments.
+
+The `_security-review/` directory documents what we changed and why,
+which is good practice but is not a license obligation.
+
+## Where to put a "this is an internal build" notice
+
+The cleanest place is the GitHub Release notes (auto-populated by the
+Linux CI workflow for tag pushes; you can edit the draft before
+publishing). Suggested text for the release notes:
+
+> Internal build of [freelensapp/freelens](https://github.com/freelensapp/freelens)
+> for company use. This is a hardened fork — see
+> [`_security-review/`](https://github.com/westaylor/freelens/tree/internal/hardening/_security-review)
+> on the `internal/hardening` branch for the full set of changes
+> against upstream. Freelens is MIT-licensed and authored by the
+> Freelens Authors and OpenLens Authors; this build is signed by
+> our team's `Developer ID Application` certificate so that the
+> binary passes corp Gatekeeper / EDR policy. We do not claim
+> authorship of the source code.
+
+`build-mac-signed.sh --upload-create` opens any new draft release
+with a placeholder body that you can edit to the above before
+publishing.
+
 ## Strategy at a glance
 
 | Platform | Where built | Where signed | Notarized? | Blocker |

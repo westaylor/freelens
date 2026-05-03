@@ -154,5 +154,21 @@ jobs:
             freelens/dist/*.rpm
           fail_on_unmatched_files: false
           generate_release_notes: true
+          # Attribution + signing-intent header. Auto-generated changelog
+          # from `generate_release_notes: true` is appended after this
+          # block. Rationale in _security-review/09-build-and-release.md
+          # "Attribution and signing intent".
+          body: |
+            **Internal build of [freelensapp/freelens](https://github.com/freelensapp/freelens) for company use.**
+
+            This is a hardened fork; the changes against upstream are documented in
+            [`_security-review/`](https://github.com/${{ github.repository }}/tree/internal/hardening/_security-review)
+            on the `internal/hardening` branch. Freelens is MIT-licensed and authored
+            by the Freelens Authors and OpenLens Authors. This build is signed (macOS
+            artifacts only — Linux artifacts here are unsigned, distributed via our
+            internal apt mirror) so that the binary passes corporate Gatekeeper / EDR
+            policy. We do not claim authorship of the source code.
+
+            ---
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
