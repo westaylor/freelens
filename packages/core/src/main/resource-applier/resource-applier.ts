@@ -4,8 +4,10 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import * as yaml from "js-yaml";
-import tempy from "tempy";
 import { defaultYamlDumpOptions } from "../../common/kube-helpers";
 
 import type { KubernetesObject } from "@freelensapp/kubernetes-client-node";
@@ -86,7 +88,9 @@ export class ResourceApplier {
   protected async kubectlApply(content: string): AsyncResult<string, string> {
     const kubectlPath = await this.getKubectlPath();
     const proxyKubeconfigPath = await this.dependencies.proxyKubeconfigManager.ensurePath();
-    const fileName = tempy.file({ name: "resource.yaml" });
+    // tempy@1.0.1 dropped (_security-review/02-supply-chain-audit.md):
+    // 5-year-old single-maintainer pin replaced with Node mkdtempSync.
+    const fileName = join(mkdtempSync(join(tmpdir(), "freelens-apply-")), "resource.yaml");
     const args = ["apply", "--kubeconfig", proxyKubeconfigPath, "-o", "json", "-f", fileName];
 
     this.dependencies.logger.debug(`shooting manifests with ${kubectlPath}`, { args });
@@ -131,7 +135,7 @@ export class ResourceApplier {
   ): AsyncResult<string, string> {
     const kubectlPath = await this.getKubectlPath();
     const proxyKubeconfigPath = await this.dependencies.proxyKubeconfigManager.ensurePath();
-    const tmpDir = tempy.directory();
+    const tmpDir = mkdtempSync(join(tmpdir(), "freelens-apply-"));
 
     await Promise.all(
       resources.map((resource, index) =>

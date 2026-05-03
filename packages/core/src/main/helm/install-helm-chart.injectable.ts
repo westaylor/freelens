@@ -4,9 +4,11 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { getInjectable } from "@ogre-tools/injectable";
 import { dump } from "js-yaml";
-import tempy from "tempy";
 import removePathInjectable from "../../common/fs/remove.injectable";
 import writeFileInjectable from "../../common/fs/write-file.injectable";
 import userPreferencesStateInjectable from "../../features/user-preferences/common/state.injectable";
@@ -43,7 +45,11 @@ const installHelmChartInjectable = getInjectable({
     const state = di.inject(userPreferencesStateInjectable);
 
     return async ({ chart, kubeconfigPath, name, namespace, values, version, forceConflicts }) => {
-      const valuesFilePath = tempy.file({ name: "values.yaml" });
+      // Internal-fork hardening (_security-review/02-supply-chain-audit.md):
+      // tempy@1.0.1 was a 5-year-old single-maintainer pin. Inline the small
+      // bit of logic we used (tempy.file({ name }) -> a unique-dir/<name>)
+      // with Node's mkdtempSync so we can drop the dependency.
+      const valuesFilePath = join(mkdtempSync(join(tmpdir(), "freelens-helm-")), "values.yaml");
 
       await writeFile(valuesFilePath, dump(values));
 

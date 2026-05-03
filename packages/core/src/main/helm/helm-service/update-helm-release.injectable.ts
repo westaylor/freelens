@@ -4,9 +4,11 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { loggerInjectionToken } from "@freelensapp/logger";
 import { getInjectable } from "@ogre-tools/injectable";
-import tempy from "tempy";
 import removePathInjectable from "../../../common/fs/remove.injectable";
 import writeFileInjectable from "../../../common/fs/write-file.injectable";
 import userPreferencesStateInjectable from "../../../features/user-preferences/common/state.injectable";
@@ -37,7 +39,8 @@ const updateHelmReleaseInjectable = getInjectable({
     return async (cluster: Cluster, releaseName: string, namespace: string, data: UpdateChartArgs) => {
       const proxyKubeconfigManager = di.inject(kubeconfigManagerInjectable, cluster);
       const proxyKubeconfigPath = await proxyKubeconfigManager.ensurePath();
-      const valuesFilePath = tempy.file({ name: "values.yaml" });
+      // tempy@1.0.1 dropped: see install-helm-chart.injectable.ts comment.
+      const valuesFilePath = join(mkdtempSync(join(tmpdir(), "freelens-helm-")), "values.yaml");
 
       logger.debug(`[HELM]: upgrading "${releaseName}" in "${namespace}" to ${data.version}`);
 
