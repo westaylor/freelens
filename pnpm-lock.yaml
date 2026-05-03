@@ -2563,6 +2563,9 @@ importers:
       '@ogre-tools/injectable-react':
         specifier: 17.11.1
         version: 17.11.1(@ogre-tools/fp@17.11.1(lodash@4.18.1))(@ogre-tools/injectable@17.11.1(@ogre-tools/fp@17.11.1(lodash@4.18.1))(lodash@4.18.1))(lodash@4.18.1)(mobx-react@7.6.0(mobx@6.15.0)(react-dom@17.0.2(react@17.0.2))(react@17.0.2))(mobx@6.15.0)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
+      dompurify:
+        specifier: ^3.4.1
+        version: 3.4.1
       lodash:
         specifier: ^4.18.1
         version: 4.18.1
@@ -2591,6 +2594,9 @@ importers:
       '@freelensapp/webpack':
         specifier: workspace:^
         version: link:../../infrastructure/webpack
+      '@types/dompurify':
+        specifier: ^3.0.5
+        version: 3.2.0
       '@types/history':
         specifier: ^4.7.11
         version: 4.7.11
@@ -4597,6 +4603,10 @@ packages:
 
   '@types/debug@4.1.8':
     resolution: {integrity: sha512-/vPO1EPOs306Cvhwv7KfVfYvOJqA/S/AXjaHQiJboCZzcNDb+TIJFN9/2C9DZ//ijSKWioNyUxD792QmDJ+HKQ==}
+
+  '@types/dompurify@3.2.0':
+    resolution: {integrity: sha512-Fgg31wv9QbLDA0SpTOXO3MaxySc4DKGLi8sna4/Utjo4r3ZRPdCt4UQee8BWr+Q5z21yifghREPJGYaEOEIACg==}
+    deprecated: This is a stub types definition. dompurify provides its own type definitions, so you do not need this installed.
 
   '@types/eslint-scope@3.7.7':
     resolution: {integrity: sha512-MzMFlSLBqNF2gcHWO0G1vP/YQyfvrxZ0bF+u7mzUdZ1/xK4A4sru+nraZz5i3iEIk1l1uyicaDVTB4QbbEkAYg==}
@@ -10609,6 +10619,10 @@ snapshots:
   '@types/debug@4.1.8':
     dependencies:
       '@types/ms': 0.7.31
+
+  '@types/dompurify@3.2.0':
+    dependencies:
+      dompurify: 3.4.1
 
   '@types/eslint-scope@3.7.7':
     dependencies:

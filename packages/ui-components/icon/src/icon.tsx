@@ -10,6 +10,7 @@ import { loggerInjectionToken } from "@freelensapp/logger";
 import { withTooltip } from "@freelensapp/tooltip";
 import { cssNames } from "@freelensapp/utilities";
 import { withInjectables } from "@ogre-tools/injectable-react";
+import DOMPurify from "dompurify";
 import isNumber from "lodash/isNumber";
 import React, { createRef } from "react";
 import { NavLink } from "react-router-dom";
@@ -169,6 +170,29 @@ export function isSvg(content: string): boolean {
   return String(content).includes("<svg");
 }
 
+// Internal-fork hardening (semgrep finding,
+// _security-review/06-semgrep-static-analysis.md):
+//
+// dangerouslySetInnerHTML on the SVG-string branch was the highest-impact
+// finding from the static analysis pass: the only validation was
+// `content.includes("<svg")`, which any input matching that 5-char
+// substring satisfies. An attacker who can pass a string of the form
+// `<svg><script>...</script></svg>` (or one of the many SVG-event-handler
+// vectors) gets script execution in the renderer. Combined with H1
+// (nodeIntegration: true) the renderer XSS becomes RCE.
+//
+// We sanitize SVG content with DOMPurify in SVG profile mode before
+// handing it to dangerouslySetInnerHTML. The bundled icons (those in
+// localSvgIcons) are static SVG-loader output and pass through cleanly;
+// the additional cost on dynamic / extension-supplied SVG strings is
+// the intended defense.
+function sanitizeSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    KEEP_CONTENT: false,
+  });
+}
+
 interface Dependencies {
   logger: Logger;
 }
@@ -250,7 +274,8 @@ const RawIcon = (props: IconProps & Dependencies) => {
 
   // render as inline svg-icon
   if (typeof svg === "string") {
-    const svgIconText = isSvg(svg) ? svg : (localSvgIcons.get(svg) ?? "");
+    const rawSvgText = isSvg(svg) ? svg : (localSvgIcons.get(svg) ?? "");
+    const svgIconText = rawSvgText ? sanitizeSvg(rawSvgText) : "";
 
     iconContent = <span className="icon" dangerouslySetInnerHTML={{ __html: svgIconText }} />;
   }
