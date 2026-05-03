@@ -128,12 +128,38 @@ export const bindProtocolAddRouteHandlers =
         navigateToExtensions();
       })
       .addInternalHandler(
+        // Internal-fork hardening (H3, _security-review/01-source-code-review.md):
+        //
+        // The /extensions/install route was the highest remote-RCE surface
+        // in the upstream app. A crafted freelens:// URL in a phishing
+        // email -> single-button confirmation -> pnpm install of an
+        // attacker-controlled package -> Node-privileged code running with
+        // full filesystem and IPC access. There is no signature check on
+        // the package, no manifest-permissions gate (see H6), and no
+        // sender verification on the deep-link.
+        //
+        // We keep the route registered (so an attacker cannot fall through
+        // to a broader handler) but turn it into a no-op that tells the
+        // user the feature is disabled. Internal users who legitimately
+        // need an extension still install via Preferences -> Extensions
+        // (drag-and-drop or "Install by name"), which is a deliberate
+        // user-initiated action originating from inside the app.
         `/extensions/install${LensProtocolRouter.ExtensionUrlSchema}`,
         ({ pathname, search: { version } }) => {
           const name = [pathname[EXTENSION_PUBLISHER_MATCH], pathname[EXTENSION_NAME_MATCH]].filter(Boolean).join("/");
-
-          navigateToExtensions();
-          attemptInstallByInfo({ name, version, requireConfirmation: true });
+          showShortInfoNotification(
+            <p>
+              Extension install via <code>freelens://</code> URL is disabled
+              in this build for security reasons. Install <code>{name}</code>
+              {version ? <> @ {version}</> : null} from Preferences -&gt; Extensions
+              instead, if your administrator has authorized it.
+            </p>,
+          );
+          // Do NOT call attemptInstallByInfo. The reference is kept here so
+          // the injectable wiring in Dependencies stays valid; the
+          // `noUnusedLocals` rule passes because the destructured field is
+          // referenced below.
+          void attemptInstallByInfo;
         },
       );
   };
