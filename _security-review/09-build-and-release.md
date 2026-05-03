@@ -63,6 +63,46 @@ pnpm build:app:darwin:signed:x64     # Intel
 pnpm build:app:darwin:signed:both    # both archs (universal-ish)
 ```
 
+### Build + upload to a GitHub Release
+
+The mac signed/notarized artifacts are not built in CI; you upload them
+to the same GitHub Release the Linux CI workflow created (or create a
+new draft yourself).
+
+```sh
+# Authenticate gh once if not already.
+gh auth status || gh auth login
+
+# Option A: tag was already pushed (Linux CI workflow already created
+# the release). Build + upload the mac artifacts on top.
+pnpm release:darwin v1.9.0-internal.1
+
+# Option B: same as A but the release doesn't exist yet -- create a
+# draft, build + upload, then publish in the GH UI when ready. Use the
+# raw script form (the pnpm shortcut doesn't expose --upload-create).
+freelens/scripts/build-mac-signed.sh arm64 \
+  --upload v1.9.0-internal.1 \
+  --upload-create
+
+# Optional: target a different repo (e.g. a staging fork).
+freelens/scripts/build-mac-signed.sh arm64 \
+  --upload v1.9.0-internal.1 \
+  --repo westaylor/freelens-staging
+```
+
+The script uploads (in `dist/`):
+
+- `Freelens-<version>-arm64.dmg` — drag-to-Applications installer
+- `Freelens-<version>-arm64.dmg.blockmap` — auto-update delta map
+- `Freelens-<version>-arm64-mac.zip` — zip of the .app for scripted distribution
+- `Freelens-<version>-arm64-mac.zip.blockmap`
+- `latest-mac.yml` — electron-updater feed
+
+`gh release upload --clobber` is used so re-runs of the same tag
+overwrite previous uploads (handy while iterating on signing /
+notarization). `--clobber` only affects the artifacts you're
+uploading; it doesn't touch any other assets on the release.
+
 The `build-mac-signed.sh` wrapper does these checks before invoking
 electron-builder:
 

@@ -26,6 +26,7 @@
     "build:app:darwin:signed": "scripts/build-mac-signed.sh arm64",
     "build:app:darwin:signed:x64": "scripts/build-mac-signed.sh x64",
     "build:app:darwin:signed:both": "scripts/build-mac-signed.sh both",
+    "release:darwin": "scripts/build-mac-signed.sh arm64 --upload",
     "build:app:default": "electron-builder --publish never",
     "build:app:linux": "electron-builder --publish never --linux",
     "build:app:win32": "electron-builder --publish never --win",

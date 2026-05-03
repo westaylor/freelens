@@ -2,7 +2,14 @@
 # Internal-fork tooling: signed + (optionally) notarized macOS build.
 #
 # Usage:
-#   freelens/scripts/build-mac-signed.sh [arm64|x64|both]
+#   freelens/scripts/build-mac-signed.sh [arm64|x64|both] [--upload TAG]
+#
+# Examples:
+#   # local-only build, no upload
+#   freelens/scripts/build-mac-signed.sh arm64
+#
+#   # build + upload to existing or new release v1.9.0-internal.1
+#   freelens/scripts/build-mac-signed.sh arm64 --upload v1.9.0-internal.1
 #
 # Required Keychain state:
 #   A "Developer ID Application: <Your Name> (<TEAM_ID>)" certificate
@@ -20,6 +27,11 @@
 #   APPLEIDPASS=<app-specific password from appleid.apple.com>
 #   APPLETEAMID=<team id>
 #
+# For --upload:
+#   gh CLI must be authenticated (`gh auth status`).
+#   The release tag must already exist OR you can pass --upload-create
+#   to also create the tag/release.
+#
 # Internal-fork hardening notes:
 #   1. Apple Development certs (the kind you get from Xcode "Sign in with
 #      Apple ID") only work for your own machine. For ANY distribution
@@ -33,10 +45,62 @@
 
 set -euo pipefail
 
-ARCH_ARG="${1:-arm64}"
+ARCH_ARG=""
+UPLOAD_TAG=""
+UPLOAD_CREATE=0
+GH_REPO_FLAG=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    arm64|x64|both)
+      ARCH_ARG="$1"
+      shift
+      ;;
+    --upload)
+      shift
+      UPLOAD_TAG="${1:-}"
+      if [ -z "$UPLOAD_TAG" ]; then
+        echo "ERROR: --upload requires a tag argument (e.g. v1.9.0-internal.1)" >&2
+        exit 1
+      fi
+      shift
+      ;;
+    --upload-create)
+      UPLOAD_CREATE=1
+      shift
+      ;;
+    --repo)
+      shift
+      GH_REPO_FLAG=(--repo "${1:-}")
+      shift
+      ;;
+    -h|--help)
+      sed -n '2,/^set/p' "$0" | sed -n '/^#/p' | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      echo "ERROR: unknown argument: $1" >&2
+      echo "Usage: $(basename "$0") [arm64|x64|both] [--upload TAG] [--upload-create] [--repo OWNER/NAME]" >&2
+      exit 1
+      ;;
+  esac
+done
+ARCH_ARG="${ARCH_ARG:-arm64}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT/freelens"
+
+# Pre-flight upload requirements before doing the slow build.
+if [ -n "$UPLOAD_TAG" ]; then
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "ERROR: --upload was passed but gh CLI is not installed." >&2
+    exit 1
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "ERROR: --upload was passed but gh is not authenticated. Run \`gh auth login\`." >&2
+    exit 1
+  fi
+  echo "==> Will upload to release \"$UPLOAD_TAG\" after the build."
+fi
 
 echo "==> Verifying signing identity"
 if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
@@ -108,3 +172,63 @@ for app in dist/mac*/*.app; do
     spctl --assess --type execute --verbose=2 "$app" 2>&1 | sed 's/^/    /' || true
   fi
 done
+
+if [ -n "$UPLOAD_TAG" ]; then
+  echo
+  echo "==> Preparing artifacts for upload to release $UPLOAD_TAG"
+
+  # electron-builder produces:
+  #   Freelens-<version>-arm64.dmg            (installer, drag-to-Applications)
+  #   Freelens-<version>-arm64.dmg.blockmap   (auto-update delta map)
+  #   Freelens-<version>-arm64-mac.zip        (zip of the .app, used by some
+  #                                            updaters and convenient for
+  #                                            scripted distribution)
+  #   Freelens-<version>-arm64-mac.zip.blockmap
+  #   latest-mac.yml                          (electron-updater feed)
+  #
+  # We upload everything except the unpacked dist/mac*/ directory.
+  shopt -s nullglob
+  ARTIFACTS=(
+    dist/*.dmg
+    dist/*.dmg.blockmap
+    dist/*-mac.zip
+    dist/*-mac.zip.blockmap
+    dist/latest-mac.yml
+    dist/latest-mac-*.yml
+  )
+  shopt -u nullglob
+
+  if [ ${#ARTIFACTS[@]} -eq 0 ]; then
+    echo "WARN: no upload-eligible artifacts found in dist/." >&2
+    exit 0
+  fi
+
+  # Make sure the release exists. `gh release view` exits non-zero if
+  # the tag doesn't have a release yet. With --upload-create we create
+  # one as a draft so the human can publish after reviewing artifacts.
+  if ! gh release view "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" >/dev/null 2>&1; then
+    if [ "$UPLOAD_CREATE" -eq 1 ]; then
+      echo "==> Release $UPLOAD_TAG doesn't exist; creating as draft"
+      gh release create "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" \
+        --draft \
+        --title "$UPLOAD_TAG" \
+        --notes "Internal build. Linux artifacts come from the internal-release-linux GH workflow on tag push; macOS artifacts are uploaded manually after local signed build."
+    else
+      echo "ERROR: release $UPLOAD_TAG does not exist on the remote." >&2
+      echo "       Either push the tag first (the Linux release workflow will create the release)," >&2
+      echo "       or pass --upload-create to create a draft release here." >&2
+      exit 1
+    fi
+  fi
+
+  echo "==> Uploading the following artifacts to release $UPLOAD_TAG:"
+  printf '   %s\n' "${ARTIFACTS[@]}"
+
+  # --clobber so a re-run with the same tag overwrites previous attempts
+  # (handy when iterating on signing/notarization).
+  gh release upload "$UPLOAD_TAG" "${ARTIFACTS[@]}" --clobber "${GH_REPO_FLAG[@]}"
+
+  echo
+  echo "==> Done. Release URL:"
+  gh release view "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" --json url --jq .url
+fi
