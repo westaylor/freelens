@@ -103,7 +103,11 @@ export type ClusterPageMenuOrder = {
 // to point at the internal mirror) is honored. If the user's npmrc is not
 // configured, the extension install fails closed -- which is the desired
 // outcome for an offline / firewalled deployment.
-export const defaultExtensionRegistryUrlLocation: ExtensionRegistryLocation = "npmrc";
+//
+// The literal type ("npmrc" rather than the wider ExtensionRegistryLocation)
+// is load-bearing: ExtensionRegistry is a discriminated union where only the
+// "custom" branch carries customUrl, so the consumers narrow on the literal.
+export const defaultExtensionRegistryUrlLocation = "npmrc" as const;
 export const defaultExtensionRegistryUrl = "https://registry.npmjs.org";
 
 type PreferencesModelType<field extends keyof PreferenceDescriptors> =

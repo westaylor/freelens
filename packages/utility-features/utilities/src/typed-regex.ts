@@ -19,14 +19,26 @@
 // matches, which is the same behavior the upstream `typed-regex`
 // provides.
 
+export interface TypedRegExMatchResult<T> {
+  matched: boolean;
+  groups?: T;
+  raw?: RegExpExecArray;
+}
+
 export interface TypedRegExLike<T> {
   /** Returns true iff the string matches the pattern. */
   isMatch(value: string): boolean;
   /** Returns the named capture groups, or undefined if no match. */
   captures(value: string): T | undefined;
+  /** Compatibility alias used by some consumers: returns matched + groups. */
+  match(value: string): TypedRegExMatchResult<T>;
 }
 
-export function TypedRegEx<T = Record<string, string | undefined>>(pattern: string, flags?: string): TypedRegExLike<T> {
+// Default T matches TS's lib type for RegExpMatchArray.groups (each group is
+// `string`, not `string | undefined`). Call sites that have optional groups
+// should cast the result of `TypedRegEx(...)` to a specific shape, the same
+// way they did with the upstream typed-regex package.
+export function TypedRegEx<T = Record<string, string>>(pattern: string, flags?: string): TypedRegExLike<T> {
   // Strip stateful flags so consumers can call isMatch/captures repeatedly
   // without surprising lastIndex behavior, matching upstream typed-regex.
   const safeFlags = (flags ?? "").replace(/[gy]/g, "");
@@ -37,6 +49,15 @@ export function TypedRegEx<T = Record<string, string | undefined>>(pattern: stri
     captures(value: string): T | undefined {
       const match = new RegExp(pattern, safeFlags).exec(value);
       return (match?.groups as T | undefined) ?? undefined;
+    },
+    match(value: string): TypedRegExMatchResult<T> {
+      const raw = new RegExp(pattern, safeFlags).exec(value);
+      if (!raw) return { matched: false };
+      return {
+        matched: true,
+        groups: (raw.groups as T | undefined) ?? undefined,
+        raw,
+      };
     },
   };
 }
