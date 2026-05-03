@@ -5,7 +5,7 @@
  */
 
 import { JSONPath } from "@astronautlabs/jsonpath";
-import { TypedRegEx } from "typed-regex";
+import { TypedRegEx } from "./typed-regex";
 
 const slashDashSearch = /[/\\-]/g;
 const pathByBareDots = /(?<=\w)\./;

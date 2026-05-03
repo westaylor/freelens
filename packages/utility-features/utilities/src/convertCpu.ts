@@ -4,7 +4,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { TypedRegEx } from "typed-regex";
+import { TypedRegEx } from "./typed-regex";
 
 // Helper to convert CPU K8S units to numbers
 

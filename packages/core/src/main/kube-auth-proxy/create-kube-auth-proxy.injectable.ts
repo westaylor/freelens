@@ -8,7 +8,7 @@ import { loggerInjectionToken } from "@freelensapp/logger";
 import { getInjectable, lifecycleEnum } from "@ogre-tools/injectable";
 import assert from "assert";
 import { observable, when } from "mobx";
-import { TypedRegEx } from "typed-regex";
+import { TypedRegEx } from "@freelensapp/utilities";
 import getDirnameOfPathInjectable from "../../common/path/get-dirname.injectable";
 import randomBytesInjectable from "../../common/utils/random-bytes.injectable";
 import clusterApiUrlInjectable from "../../features/cluster/connections/main/api-url.injectable";

@@ -38,6 +38,7 @@ export * from "./src/sort-compare";
 export * from "./src/sort-function";
 export * from "./src/tar";
 export * from "./src/tuple";
+export * from "./src/typed-regex";
 export * from "./src/type-narrowing";
 export * from "./src/types";
 export * from "./src/union-env-path";

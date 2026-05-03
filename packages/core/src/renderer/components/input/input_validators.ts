@@ -5,7 +5,10 @@
  */
 
 import fse from "fs-extra";
-import { TypedRegEx } from "typed-regex";
+// Internal-fork hardening: typed-regex (single-maintainer, abandoned per
+// _security-review/02-supply-chain-audit.md) replaced with a tiny in-tree
+// drop-in shipped from @freelensapp/utilities.
+import { TypedRegEx } from "@freelensapp/utilities";
 
 import type { StrictReactNode } from "@freelensapp/utilities";
 
