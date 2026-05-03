@@ -382,7 +382,33 @@ export abstract class ShellSession {
     }
 
     env.PTYPID = process.pid.toString();
-    env.KUBECONFIG = this.dependencies.proxyKubeconfigPath;
+    // Internal-fork hardening (upstream issue #1671 + the helper OIDC plan):
+    //
+    // Upstream points the terminal's KUBECONFIG at the lens-proxy kubeconfig
+    // (which talks to localhost:<port> with bearer tokens stripped). That
+    // works for kubectl-as-API but loses four things the user expects:
+    //   * proxy-url (SOCKS / HTTP) the user configured in their real
+    //     kubeconfig -- #1671 reports SOCKS proxy is dropped this way.
+    //   * users[].user.exec credential plugins (the helper k8s-credential,
+    //     aws-iam-authenticator, gcloud, ...). We rely on this for OIDC.
+    //   * users[].user.auth-provider configs (gcp, oidc, openshift).
+    //   * per-cluster custom CA certs / TLS settings.
+    //
+    // Prefer the original user kubeconfig so kubectl in the terminal
+    // authenticates and proxies exactly like the user's local kubectl.
+    // Fall back to the proxy kubeconfig if the original path is somehow
+    // missing.
+    //
+    // Multi-cluster note: kubectl uses the kubeconfig's current-context
+    // field. If a user opens a non-current cluster in Freelens and then
+    // opens a terminal, kubectl in that terminal will target whatever
+    // current-context the file has, NOT the cluster they clicked on.
+    // They can `kubectl config use-context <name>` to switch. A
+    // context-pinning wrapper kubeconfig is a possible follow-up but
+    // would re-introduce the proxy-stripping problem unless we do it
+    // carefully (kubeconfig YAML has no "include" directive).
+    const originalKubeconfigPath = this.cluster.kubeConfigPath.get();
+    env.KUBECONFIG = originalKubeconfigPath || this.dependencies.proxyKubeconfigPath;
     env.TERM_PROGRAM = this.dependencies.appName;
     env.TERM_PROGRAM_VERSION = this.dependencies.buildVersion;
 
