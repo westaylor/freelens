@@ -21,7 +21,20 @@ export interface RuntimeClassData extends KubeJsonApiData<KubeObjectMetadata<Kub
 }
 
 export interface RuntimeClassOverhead {
-  podFixed?: string;
+  // Internal-fork hardening (upstream issue #1172):
+  //
+  // The k8s API defines `overhead.podFixed` as a ResourceList (a map of
+  // resource name -> Quantity), not a string. Upstream typed it as
+  // `string`, which compiled fine but meant getPodFixed() returned the
+  // raw object at runtime. The Details view passed that object directly
+  // as React children, which raises "Objects are not valid as a React
+  // child" -- the crash users saw on RuntimeClass details.
+  //
+  // Match the actual API shape: an optional map. The accessor below
+  // formats it for display.
+  //
+  // Ref: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#runtimeclass-v1-node-k8s-io
+  podFixed?: Partial<Record<string, string>>;
 }
 
 export interface RuntimeClassScheduling {
@@ -53,8 +66,19 @@ export class RuntimeClass extends KubeObject<ClusterScopedMetadata, void, void> 
     return this.handler;
   }
 
-  getPodFixed() {
-    return this.overhead?.podFixed ?? "";
+  getPodFixed(): string {
+    const podFixed = this.overhead?.podFixed;
+    if (!podFixed) return "";
+    if (typeof podFixed === "string") {
+      // Defensive: handle the upstream-broken type-as-string shape
+      // gracefully, in case some cluster's API actually emits a string.
+      return podFixed;
+    }
+    if (typeof podFixed !== "object") return "";
+    return Object.entries(podFixed)
+      .filter(([, v]) => typeof v === "string")
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ");
   }
 
   getNodeSelectors(): string[] {
