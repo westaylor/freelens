@@ -8,6 +8,7 @@
 
 import arg from "arg";
 import { MultiBar } from "cli-progress";
+import { createHash } from "crypto";
 import { constants, type WriteStream } from "fs";
 import { type FileHandle, mkdir, open, readFile, unlink } from "fs/promises";
 import gunzip from "gunzip-maybe";
@@ -78,8 +79,39 @@ interface BinaryDownloaderArgs {
   readonly url: string;
 }
 
+// Internal-fork hardening (H5, _security-review/01-source-code-review.md):
+//
+// Tee the downloaded bytes through a SHA-256 hasher so we can compare
+// against the upstream-published checksum after the pipeline finishes.
+// We hash the bytes *as downloaded* (not the post-extracted binary),
+// because the upstream checksum is published over the wire format
+// (helm tarball, kubectl raw exe, etc.).
+class StreamHasher extends Transform {
+  private readonly hasher = createHash("sha256");
+  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: () => void): void {
+    this.hasher.update(chunk);
+    this.push(chunk);
+    callback();
+  }
+  digestHex(): string {
+    return this.hasher.digest("hex");
+  }
+}
+
+// Parse an upstream checksum file. Two formats are common:
+//   - kubectl / freelens-k8s-proxy: bare hex hash, possibly with trailing
+//     newline. e.g. "abc123...\n"
+//   - helm: "<hex>  <filename>\n", coreutils sha256sum format.
+// We accept either: pull the first 64-hex-char run we find.
+function parseUpstreamChecksum(body: string): string | undefined {
+  const m = body.match(/[a-f0-9]{64}/i);
+  return m ? m[0].toLowerCase() : undefined;
+}
+
 abstract class BinaryDownloader {
   protected abstract readonly url: string;
+  /** URL to fetch the upstream sha256 file for the wire format. */
+  protected abstract checksumUrl(): string;
   protected readonly bar: SingleBar;
   protected readonly target: string;
 
@@ -148,6 +180,8 @@ abstract class BinaryDownloader {
         throw new Error("no body on stream");
       }
 
+      const hasher = new StreamHasher();
+
       await pipeline(
         stream.body,
         new Transform({
@@ -157,6 +191,7 @@ abstract class BinaryDownloader {
             callback();
           },
         }),
+        hasher,
         ...this.getTransformStreams(
           new Writable({
             write(chunk, encoding, cb) {
@@ -168,6 +203,30 @@ abstract class BinaryDownloader {
           }),
         ),
       );
+
+      // Internal-fork hardening (H5): verify SHA-256 against the upstream
+      // checksum file. Mitigates network MITM and transient upstream
+      // typo / wrong-binary substitution. Does NOT mitigate upstream
+      // compromise where attacker controls both the binary and the
+      // checksum file -- for that we'd need a separate signed manifest,
+      // which is a future hardening step.
+      const localDigest = hasher.digestHex();
+      const checksumUrl = this.checksumUrl();
+      const checksumResp = await fetch(checksumUrl, { signal: controller.signal });
+      if (!checksumResp.ok) {
+        throw new Error(`could not fetch checksum file ${checksumUrl}: ${checksumResp.status} ${checksumResp.statusText}`);
+      }
+      const checksumBody = await checksumResp.text();
+      const expected = parseUpstreamChecksum(checksumBody);
+      if (!expected) {
+        throw new Error(`could not parse checksum file ${checksumUrl}: ${JSON.stringify(checksumBody.slice(0, 200))}`);
+      }
+      if (expected !== localDigest) {
+        throw new Error(
+          `checksum mismatch for ${this.url}\n  expected: ${expected}\n  got:      ${localDigest}`,
+        );
+      }
+
       await fileHandle.chmod(0o755);
       await fileHandle.close();
     } catch (error) {
@@ -195,6 +254,9 @@ class FreeLensK8sProxyDownloader extends BinaryDownloader {
     super({ ...args, binaryName, url }, bar);
     this.url = url;
   }
+  protected checksumUrl(): string {
+    return `${this.url}.sha256`;
+  }
 }
 
 class KubectlDownloader extends BinaryDownloader {
@@ -207,6 +269,9 @@ class KubectlDownloader extends BinaryDownloader {
     super({ ...args, binaryName, url }, bar);
     this.url = url;
   }
+  protected checksumUrl(): string {
+    return `${this.url}.sha256`;
+  }
 }
 
 class HelmDownloader extends BinaryDownloader {
@@ -218,6 +283,9 @@ class HelmDownloader extends BinaryDownloader {
 
     super({ ...args, binaryName, url }, bar);
     this.url = url;
+  }
+  protected checksumUrl(): string {
+    return `${this.url}.sha256sum`;
   }
 
   protected getTransformStreams(file: WriteStream) {
