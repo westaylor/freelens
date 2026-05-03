@@ -10,7 +10,10 @@ import { dumpConfigYaml } from "../../common/kube-helpers";
 import type { KubeConfig } from "@freelensapp/kubernetes-client-node";
 import type { Logger } from "@freelensapp/logger";
 
-import type { SelfSignedCert } from "selfsigned";
+// selfsigned v5 does not export the result-type interface; derive it from
+// the function signature to stay in sync with the package.
+import type { generate as _generate } from "selfsigned";
+type SelfSignedCert = Awaited<ReturnType<typeof _generate>>;
 import type { PartialDeep } from "type-fest";
 
 import type { Cluster } from "../../common/cluster/cluster";

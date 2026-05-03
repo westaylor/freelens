@@ -139,7 +139,10 @@ const createKubeAuthProxyInjectable = getInjectable({
         }
 
         const apiUrl = await clusterApiUrl();
-        const certificate = di.inject(kubeAuthProxyCertificateInjectable, apiUrl.hostname);
+        // Selfsigned v5: certificate generation is async; the injectable
+        // now returns Promise<SelfSignedCert>. See
+        // kube-auth-proxy-certificate.injectable.ts for the rationale.
+        const certificate = await di.inject(kubeAuthProxyCertificateInjectable, apiUrl.hostname);
 
         proxyProcess = spawn(freeLensK8sProxyPath, [], {
           env: {

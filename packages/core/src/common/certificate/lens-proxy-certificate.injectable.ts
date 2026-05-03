@@ -6,7 +6,10 @@
 
 import { getInjectable } from "@ogre-tools/injectable";
 
-import type { SelfSignedCert } from "selfsigned";
+// selfsigned v5 does not export the result-type interface; derive it from
+// the function signature to stay in sync with the package.
+import type { generate as _generate } from "selfsigned";
+type SelfSignedCert = Awaited<ReturnType<typeof _generate>>;
 
 const lensProxyCertificateInjectable = getInjectable({
   id: "lens-proxy-certificate",

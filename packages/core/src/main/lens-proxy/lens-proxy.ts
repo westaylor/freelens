@@ -15,7 +15,10 @@ import type http from "http";
 import type { Logger } from "@freelensapp/logger";
 
 import type httpProxy from "http-proxy-node16";
-import type { SelfSignedCert } from "selfsigned";
+// selfsigned v5 does not export the result-type interface; derive it from
+// the function signature to stay in sync with the package.
+import type { generate as _generate } from "selfsigned";
+type SelfSignedCert = Awaited<ReturnType<typeof _generate>>;
 import type { SetRequired } from "type-fest";
 
 import type { EmitAppEvent } from "../../common/app-event-bus/emit-event.injectable";

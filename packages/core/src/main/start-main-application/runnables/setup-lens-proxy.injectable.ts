@@ -8,6 +8,7 @@ import { beforeApplicationIsLoadingInjectionToken } from "@freelensapp/applicati
 import { loggerInjectionToken } from "@freelensapp/logger";
 import { getInjectable } from "@ogre-tools/injectable";
 import { Agent } from "https";
+import { generate } from "selfsigned";
 import lensProxyCertificateInjectable from "../../../common/certificate/lens-proxy-certificate.injectable";
 import nodeFetchInjectable from "../../../common/fetch/node-fetch.injectable";
 import isProductionInjectable from "../../../common/vars/is-production.injectable";
@@ -24,14 +25,62 @@ const setupLensProxyInjectable = getInjectable({
 
   instantiate: (di) => ({
     run: async () => {
-      const lensProxy = di.inject(lensProxyInjectable);
+      // Internal-fork hardening (upstream issue #1463): selfsigned 5
+      // is async-only, so cert generation can no longer live in the
+      // sync `before-electron-is-ready` hook. Generate FIRST -- before
+      // any di.inject() that would transitively read the cert -- then
+      // populate the state container, THEN inject lens-proxy and
+      // friends.
+      //
+      // Order matters: lensProxyInjectable's instantiate eagerly reads
+      // `lensProxyCertificate.get()`, which throws "certificate has
+      // not been set" when the state is empty. If we resolve lensProxy
+      // before generation, the throw happens during DI instantiation
+      // and the app exits before cert gen ever runs.
       const forceAppExit = di.inject(forceAppExitInjectable);
       const logger = di.inject(loggerInjectionToken);
+      const showErrorPopup = di.inject(showErrorPopupInjectable);
+      const lensProxyCertificate = di.inject(lensProxyCertificateInjectable);
+      try {
+        logger.info("🔐 Generating Freelens Proxy certificate");
+        const cert = await generate(
+          [
+            { name: "commonName", value: "Freelens Certificate Authority" },
+            { name: "organizationName", value: "Freelens" },
+          ],
+          {
+            keySize: 2048,
+            algorithm: "sha256",
+            // selfsigned v5: `days` removed; default validity is 365 days.
+            extensions: [
+              { name: "basicConstraints", cA: true },
+              {
+                name: "subjectAltName",
+                altNames: [
+                  { type: 2, value: "*.renderer.freelens.app" },
+                  { type: 2, value: "renderer.freelens.app" },
+                  { type: 2, value: "localhost" },
+                  { type: 7, ip: "127.0.0.1" },
+                ],
+              },
+            ],
+          },
+        );
+        lensProxyCertificate.set(cert);
+      } catch (error: any) {
+        showErrorPopup(
+          "Freelens Error",
+          `Could not generate proxy certificate: ${error?.message || "unknown error"}`,
+        );
+        return forceAppExit();
+      }
+
+      // Now that the cert is populated, transitive cert reads in
+      // lensProxy and other downstream injectables will succeed.
+      const lensProxy = di.inject(lensProxyInjectable);
       const lensProxyPort = di.inject(lensProxyPortInjectable);
       const isWindows = di.inject(isWindowsInjectable);
-      const showErrorPopup = di.inject(showErrorPopupInjectable);
       const buildVersion = di.inject(buildVersionInitializable.stateToken);
-      const lensProxyCertificate = di.inject(lensProxyCertificateInjectable);
       const fetch = di.inject(nodeFetchInjectable);
       const isProduction = di.inject(isProductionInjectable);
 

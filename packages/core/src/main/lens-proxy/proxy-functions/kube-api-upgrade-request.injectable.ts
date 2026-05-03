@@ -25,7 +25,8 @@ const kubeApiUpgradeRequestInjectable = getInjectable({
     async ({ req, socket, head, cluster }) => {
       const clusterApiUrl = await di.inject(clusterApiUrlInjectable, cluster)();
       const kubeAuthProxyServer = di.inject(kubeAuthProxyServerInjectable, cluster);
-      const kubeAuthProxyCertificate = di.inject(kubeAuthProxyCertificateInjectable, clusterApiUrl.hostname);
+      // selfsigned 5 is async-only; the injectable returns a Promise.
+      const kubeAuthProxyCertificate = await di.inject(kubeAuthProxyCertificateInjectable, clusterApiUrl.hostname);
 
       const proxyUrl = (await kubeAuthProxyServer.ensureAuthProxyUrl()) + req.url.replace(apiKubePrefix, "");
       const pUrl = url.parse(proxyUrl);

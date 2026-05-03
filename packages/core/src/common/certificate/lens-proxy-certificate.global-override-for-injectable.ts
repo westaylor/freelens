@@ -9,10 +9,13 @@ import lensProxyCertificateInjectable from "./lens-proxy-certificate.injectable"
 
 export default getGlobalOverride(lensProxyCertificateInjectable, () => {
   return {
+    // selfsigned v5 GenerateResult also requires `fingerprint`; the
+    // test-time stub adds a placeholder so the type matches.
     get: () => ({
       public: "<public-data>",
       private: "<private-data>",
       cert: "<ca-data>",
+      fingerprint: "<fingerprint>",
     }),
     set: () => {},
   };

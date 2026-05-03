@@ -59,7 +59,7 @@ describe("kube api upgrade request", () => {
       ensureRunning: jest.fn(),
       stop: jest.fn(),
     }));
-    di.override(kubeAuthProxyCertificateInjectable, () => ({
+    di.override(kubeAuthProxyCertificateInjectable, () => Promise.resolve({
       cert: "some-cert",
       private: "some-key",
       public: "some-public-key",
@@ -128,7 +128,7 @@ describe("kube api upgrade request", () => {
       ensureRunning: jest.fn(),
       stop: jest.fn(),
     }));
-    di.override(kubeAuthProxyCertificateInjectable, () => ({
+    di.override(kubeAuthProxyCertificateInjectable, () => Promise.resolve({
       cert: "some-cert",
       private: "some-key",
       public: "some-public-key",
@@ -183,7 +183,7 @@ describe("kube api upgrade request", () => {
       ensureRunning: jest.fn(),
       stop: jest.fn(),
     }));
-    di.override(kubeAuthProxyCertificateInjectable, () => ({
+    di.override(kubeAuthProxyCertificateInjectable, () => Promise.resolve({
       cert: "some-cert",
       private: "some-key",
       public: "some-public-key",
@@ -238,7 +238,7 @@ describe("kube api upgrade request", () => {
       ensureRunning: jest.fn(),
       stop: jest.fn(),
     }));
-    di.override(kubeAuthProxyCertificateInjectable, () => ({
+    di.override(kubeAuthProxyCertificateInjectable, () => Promise.resolve({
       cert: "some-cert",
       private: "some-key",
       public: "some-public-key",

@@ -12,13 +12,23 @@ const lensProxyCertificateRequestHandlerInjectable = getRequestChannelListenerIn
   id: "lens-proxy-certificate-request-handler-listener",
   channel: lensProxyCertificateChannel,
   getHandler: (di) => {
-    const lensProxyCertificate = di.inject(lensProxyCertificateInjectable).get();
-
-    return () => ({
-      cert: lensProxyCertificate.cert,
-      public: lensProxyCertificate.public,
-      private: "",
-    });
+    // Internal-fork hardening: defer cert read to handler-INVOCATION
+    // time. Upstream read it at handler-INSTANTIATION time, which
+    // (after the selfsigned v5 / async-cert refactor) happens before
+    // setup-lens-proxy.run populates the state container -- producing
+    // a "certificate has not been set" throw on app startup.
+    //
+    // Renderer must NOT see the private key or fingerprint -- those
+    // would let a compromised renderer impersonate the local proxy.
+    return () => {
+      const lensProxyCertificate = di.inject(lensProxyCertificateInjectable).get();
+      return {
+        cert: lensProxyCertificate.cert,
+        public: lensProxyCertificate.public,
+        private: "",
+        fingerprint: "",
+      };
+    };
   },
 });
 
