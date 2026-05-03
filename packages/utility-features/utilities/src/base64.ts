@@ -4,9 +4,15 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-// Encode/decode utf-8 base64 string
-import * as Base64 from "crypto-js/enc-base64";
-import * as Utf8 from "crypto-js/enc-utf8";
+// Encode/decode utf-8 <-> base64.
+//
+// Internal-fork hardening (_security-review/02-supply-chain-audit.md):
+// upstream pulled in crypto-js (deprecated by author since 2023) for
+// nothing more than base64 transcoding. We replace with the universal
+// btoa/atob + TextEncoder/TextDecoder primitives, which are available in
+// every JS environment we target (Electron main, Electron renderer with
+// or without nodeIntegration, Node 22, modern browsers via the extension
+// API). No external dependency needed.
 
 /**
  * Computes utf-8 from base64
@@ -14,7 +20,12 @@ import * as Utf8 from "crypto-js/enc-utf8";
  * @returns The original utf-8 string
  */
 function decode(data: string): string {
-  return Base64.parse(data).toString(Utf8);
+  const bin = atob(data);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) {
+    bytes[i] = bin.charCodeAt(i);
+  }
+  return new TextDecoder("utf-8").decode(bytes);
 }
 
 /**
@@ -23,7 +34,12 @@ function decode(data: string): string {
  * @returns A base64 encoded version
  */
 function encode(data: string): string {
-  return Utf8.parse(data).toString(Base64);
+  const bytes = new TextEncoder().encode(data);
+  let bin = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    bin += String.fromCharCode(bytes[i] as number);
+  }
+  return btoa(bin);
 }
 
 export const base64 = {
