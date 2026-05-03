@@ -81,11 +81,24 @@
         "electron-builder-squirrel-windows"
       ]
     },
-    // monorepo
+    // Internal-fork hardening (_security-review/02-supply-chain-audit.md):
+    // @ogre-tools is the highest supply-chain risk in our tree (single
+    // anonymous primary maintainer, 9-star repo, 575/778 commits by one
+    // identity, used pervasively as our DI framework). Group all updates
+    // into one Renovate PR, force exact-version pinning, and surface the
+    // PR with a "review-carefully" label so it can't get reviewed as a
+    // routine bump. Combined with the global `minimumReleaseAge: 7 days`,
+    // this means a malicious or compromised release has a meaningful
+    // observation window before it can land in our build.
     {
       "groupName": "ogre-tools monorepo",
       "matchSourceUrls": [
         "https://github.com/ogre-works/ogre-tools"
+      ],
+      "rangeStrategy": "pin",
+      "addLabels": [
+        "supply-chain",
+        "review-carefully"
       ]
     }
   ],
