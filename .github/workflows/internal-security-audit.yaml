@@ -1,0 +1,161 @@
+# Internal-fork hardening: daily production-CVE audit.
+#
+# Purpose: surface ANY critical/high CVE in the production dependency
+# tree as a failed build + open issue, on a daily cadence, so we don't
+# rely on a human noticing Renovate alerts. This complements the
+# existing upstream `npm-audit.yaml` (which auto-PRs `pnpm audit fix`
+# but doesn't fail the run).
+#
+# Cost: Linux-only, ~3 min/day = ~90 min/month per environment. Well
+# within the GitHub Free 2,000 min/month private-repo budget; free on
+# public repos.
+#
+# Required secrets: none. Uses the auto-issued ${{ github.token }}
+# which has issues:write on the same repo.
+
+name: Internal — daily production CVE audit
+
+on:
+  schedule:
+    # 06:15 UTC daily, far away from the NPM registry's known busy hours.
+    - cron: "15 6 * * *"
+  workflow_dispatch: {}
+  push:
+    branches:
+      - "internal/**"
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/internal-security-audit.yaml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: internal-security-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: pnpm audit --prod
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    env:
+      DO_NOT_TRACK: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Get pnpm cache directory
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> "$GITHUB_ENV"
+
+      - name: Use pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.pnpm_cache_dir }}
+          key: pnpm-audit-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-audit-
+
+      - name: Install
+        run: pnpm install --color=always --prefer-offline --frozen-lockfile
+
+      - name: Audit production dependencies
+        id: audit
+        run: |
+          set -o pipefail
+          pnpm audit --prod --json > audit-prod.json || true
+          # Pretty-print summary for the workflow log.
+          echo '## Production audit summary' >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.metadata.vulnerabilities | to_entries | map("- \(.key): \(.value)") | join("\n")' \
+            audit-prod.json >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Findings' >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.advisories // {} | to_entries | map(.value | "- [\(.severity)] \(.module_name) \(.vulnerable_versions): \(.title) — \(.url // "")") | join("\n")' \
+            audit-prod.json >> "$GITHUB_STEP_SUMMARY"
+
+          critical=$(jq '.metadata.vulnerabilities.critical' audit-prod.json)
+          high=$(jq '.metadata.vulnerabilities.high' audit-prod.json)
+          {
+            echo "critical=$critical"
+            echo "high=$high"
+            echo "total=$((critical + high))"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+            echo "::error::Production audit found $critical critical / $high high CVEs"
+            exit 1
+          fi
+
+      - name: Upload audit JSON
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: audit-prod-${{ github.run_id }}
+          path: audit-prod.json
+          retention-days: 30
+
+      - name: Open / update tracking issue on failure
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const audit = JSON.parse(fs.readFileSync('audit-prod.json', 'utf-8'));
+            const meta = audit.metadata?.vulnerabilities || {};
+            const findings = Object.values(audit.advisories || {})
+              .map(a => `- **[${a.severity}]** \`${a.module_name}\` ${a.vulnerable_versions}: ${a.title}\n  ${a.url || ''}`)
+              .join('\n');
+
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `[security] Daily production CVE audit failing (${today})`;
+            const body = [
+              `Workflow: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              '',
+              `Severity counts: critical=${meta.critical || 0}, high=${meta.high || 0}, moderate=${meta.moderate || 0}, low=${meta.low || 0}.`,
+              '',
+              '## Findings',
+              findings || '_(none parsed; see workflow logs.)_',
+              '',
+              '_This issue is created/updated by `.github/workflows/internal-security-audit.yaml`. Close it after the audit goes clean again; the next failure will reopen._',
+            ].join('\n');
+
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'internal-security',
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = open.data.find(i => i.title.startsWith('[security] Daily production CVE audit failing'));
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                title,
+                body,
+              });
+              core.info(`Updated existing issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['internal-security'],
+              });
+              core.info(`Created issue #${created.data.number}`);
+            }

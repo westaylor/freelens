@@ -1,0 +1,122 @@
+# Internal-fork hardening: optional AI-summarizer for the daily audit.
+#
+# Purpose: post a plain-English summary of the previous day's
+# `internal-security-audit` run into the tracking issue, using the
+# GitHub Models free tier inference endpoint (no paid Copilot
+# subscription required).
+#
+# This is OPT-IN. If you don't want it, leave it disabled in the
+# Actions UI; the security-audit workflow stands on its own.
+#
+# Free-tier rate limits (per GitHub docs, as of 2026-05):
+#   - Low models  : 15 req/min, 150 req/day
+#   - High models : 10 req/min,  50 req/day
+#   - Token caps  : 8000 in, 4000 out per request
+# We do one inference per day, so we stay safely inside the free tier.
+#
+# Required secrets: none. The default ${{ github.token }} carries the
+# `models: read` permission when explicitly granted (see permissions
+# block below), and that's enough for the ai-inference action.
+
+name: Internal — AI summary of daily audit
+
+on:
+  workflow_run:
+    workflows: ["Internal — daily production CVE audit"]
+    types:
+      - completed
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  models: read       # required for GitHub Models inference
+
+concurrency:
+  group: internal-ai-summary
+  cancel-in-progress: true
+
+jobs:
+  summarize:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Download audit artifact
+        uses: actions/download-artifact@v6
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          name: audit-prod-${{ github.event.workflow_run.id }}
+          path: .audit
+        continue-on-error: true
+
+      - name: Build prompt
+        id: prompt
+        run: |
+          if [ ! -f .audit/audit-prod.json ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Extract just the bits relevant to a CVE summary; keep below
+          # 8K input tokens.
+          jq -c '{
+            vulnerabilities: .metadata.vulnerabilities,
+            advisories: (.advisories // {} | to_entries | map({
+              severity: .value.severity,
+              module: .value.module_name,
+              vulnerable: .value.vulnerable_versions,
+              patched: .value.patched_versions,
+              title: .value.title,
+            }))
+          }' .audit/audit-prod.json > .audit/digest.json
+          {
+            echo 'prompt<<EOF'
+            echo 'You are a security engineer summarizing a daily npm production-dependency audit for an internal Kubernetes IDE deployment. Output a concise, prioritized triage in plain markdown:'
+            echo '1. One-sentence overall status.'
+            echo '2. Bullet list of HIGH+ findings with the dep name, vulnerable range, and what to do (bump-to vs override vs drop).'
+            echo '3. One-line recommendation: "merge auto-PR", "manual review", or "no action".'
+            echo 'Avoid hedging. No introductory paragraphs. 200 words max.'
+            echo ''
+            echo '## Audit JSON digest'
+            echo '```json'
+            cat .audit/digest.json
+            echo '```'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Run inference
+        if: steps.prompt.outputs.skip != 'true'
+        id: infer
+        uses: actions/ai-inference@v2
+        with:
+          model: openai/gpt-4o-mini   # "low" tier, 150 req/day on free
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          max-tokens: 1500
+
+      - name: Comment on tracking issue
+        if: steps.prompt.outputs.skip != 'true' && steps.infer.outputs.response != ''
+        uses: actions/github-script@v8
+        env:
+          AI_SUMMARY: ${{ steps.infer.outputs.response }}
+        with:
+          script: |
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'internal-security',
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = open.data.find(i => i.title.startsWith('[security] Daily production CVE audit failing'));
+            if (!existing) {
+              core.warning('No open audit-failing issue found; skipping comment.');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: existing.number,
+              body: `### AI triage (gpt-4o-mini, GitHub Models free tier)\n\n${process.env.AI_SUMMARY}\n\n_Posted automatically by .github/workflows/internal-ai-summary.yaml._`,
+            });

@@ -1,0 +1,84 @@
+# Internal-fork hardening: smoke-test build on every push to internal/*.
+#
+# Purpose: don't ship an unbuildable fork. Run `pnpm install + pnpm
+# build:di + pnpm turbo run build` so we catch type / dep / packaging
+# regressions before someone tries to release a binary.
+#
+# Cost: Linux-only, ~6 min per push, ~60 min/week. Sized within the
+# GitHub Free 2,000 min/month private-repo budget; free on public.
+#
+# Required secrets: none.
+
+name: Internal — build check
+
+on:
+  push:
+    branches:
+      - "internal/**"
+      - main
+  pull_request:
+    branches:
+      - "internal/**"
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: internal-build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    env:
+      DO_NOT_TRACK: "1"
+      # Skip the build-time binary downloads (kubectl/helm/freelens-k8s-proxy).
+      # We're verifying TypeScript / packaging, not shipping binaries.
+      LENS_SKIP_DOWNLOAD_BINARIES: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Get pnpm cache directory
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> "$GITHUB_ENV"
+
+      - name: Use pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.pnpm_cache_dir }}
+          key: pnpm-build-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-build-
+
+      - name: Install
+        run: pnpm install --color=always --prefer-offline --frozen-lockfile
+
+      - name: Generate DI registrations
+        run: pnpm build:di
+
+      - name: Build all packages
+        run: pnpm turbo run build
+
+      - name: Sanity-check audit (production)
+        run: |
+          set -o pipefail
+          pnpm audit --prod --json > audit.json || true
+          critical=$(jq '.metadata.vulnerabilities.critical' audit.json)
+          high=$(jq '.metadata.vulnerabilities.high' audit.json)
+          echo "Production CVEs: critical=$critical high=$high"
+          if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+            echo "::warning::Production audit found $critical critical / $high high CVEs (see internal-security-audit workflow)"
+          fi

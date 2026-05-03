@@ -1,0 +1,97 @@
+# Internal-fork hardening: self-hosted Renovate runner.
+#
+# Purpose: independently of the upstream Renovate GitHub App (which is
+# installed against `freelensapp/freelens`, not our fork), run Renovate
+# on a daily cadence using OUR `.renovaterc.json5` config -- which
+# enforces:
+#   - minimumReleaseAge: 7 days   (3 days on vulnerability alerts)
+#   - rangeStrategy: bump
+#   - @ogre-tools/* group, pinned, "review-carefully" label
+#   - vulnerabilityAlerts label
+#
+# Cost: Linux-only, ~5 min/day = ~150 min/month. Fits the GitHub Free
+# 2,000 min/month budget for private repos; free on public repos.
+#
+# Required secret: RENOVATE_TOKEN
+#   A fine-grained PAT scoped to this repo with permissions:
+#     Contents: read & write
+#     Issues:   read & write
+#     Pull requests: read & write
+#     Workflows: read & write   (so Renovate can edit *.yaml in
+#                                 .github/workflows when bumping
+#                                 actions; required by our existing
+#                                 customManagers in .renovaterc.json5)
+#     Metadata: read
+#   The default ${{ github.token }} can't open PRs that modify
+#   workflow files because of GHA's auto-token policy, so a PAT is
+#   required. Document the PAT setup in
+#   _security-review/08-internal-fork-ci.md (forthcoming).
+
+name: Internal — daily Renovate
+
+on:
+  schedule:
+    # 04:00 UTC daily, before the security-audit workflow runs.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      log_level:
+        description: Renovate log level
+        type: choice
+        default: info
+        options:
+          - debug
+          - info
+          - warn
+          - error
+      dry_run:
+        description: Dry-run mode (no PRs created)
+        type: boolean
+        default: false
+
+permissions:
+  # Renovate uses RENOVATE_TOKEN, not the workflow token. We still
+  # request `contents: read` for the checkout step.
+  contents: read
+
+concurrency:
+  group: internal-renovate
+  cancel-in-progress: true
+
+jobs:
+  renovate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Verify RENOVATE_TOKEN is set
+        run: |
+          if [ -z "${{ secrets.RENOVATE_TOKEN }}" ]; then
+            echo "::error::RENOVATE_TOKEN secret is not configured. See .github/workflows/internal-renovate.yaml header for setup."
+            exit 1
+          fi
+
+      - name: Self-hosted Renovate
+        uses: renovatebot/github-action@v43.0.4
+        with:
+          configurationFile: .renovaterc.json5
+          token: ${{ secrets.RENOVATE_TOKEN }}
+        env:
+          # Repository to operate on (this fork only).
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          # Bypass-token-warning since we deliberately use a PAT.
+          RENOVATE_GIT_PRIVATE_KEY: ""
+          # Honor the workflow_dispatch dry-run input.
+          RENOVATE_DRY_RUN: ${{ inputs.dry_run == true && 'full' || '' }}
+          LOG_LEVEL: ${{ inputs.log_level || 'info' }}
+          # Don't open thousands of PRs at once on first run.
+          RENOVATE_PR_HOURLY_LIMIT: "5"
+          RENOVATE_PR_CONCURRENT_LIMIT: "10"
+          # Tighten posture for an internal fork:
+          # - never auto-merge
+          # - keep our 7-day cool-down even if the config is overridden
+          RENOVATE_AUTOMERGE: "false"
+          RENOVATE_MINIMUM_RELEASE_AGE: "7 days"
