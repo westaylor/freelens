@@ -5,29 +5,24 @@
  */
 
 import { getInjectable } from "@ogre-tools/injectable";
-import downloadJsonInjectable from "../../main/fetch/download-json.injectable";
 
-interface NpmRegistryPackageMetadata {
-  version: string;
-}
+// Internal-fork hardening (D-1, _security-review/03-network-egress-audit.md):
+//
+// Upstream queries https://registry.npmjs.org/<pkg>/latest on every welcome
+// page render and on Help -> About to surface a "new version available"
+// banner. For an offline / firewalled corporate deployment this is the only
+// runtime phone-home in the app and there is no kill-switch in the upstream
+// preferences UI. We disable the fetch entirely.
+//
+// The consumer (newVersionNotificationInjectable) catches this throw, logs
+// it, and skips the banner -- behavior is identical to the network being
+// down, which is the documented failure mode.
 
 const getLatestVersionInjectable = getInjectable({
   id: "get-latest-version",
-  instantiate: (di) => {
-    const downloadJson = di.inject(downloadJsonInjectable);
-
-    return async (name: string): Promise<string> => {
-      const result = await downloadJson(`https://registry.npmjs.org/${name}/latest`, {
-        timeout: 5000,
-      });
-      if (!result.callWasSuccessful) {
-        throw new Error(`Failed to fetch latest version: ${result}`);
-      }
-      const data = (await result.response) as NpmRegistryPackageMetadata;
-      if (typeof data !== "object" || typeof data.version !== "string") {
-        throw new Error("Invalid response from npm registry");
-      }
-      return data.version;
+  instantiate: () => {
+    return async (_name: string): Promise<string> => {
+      throw new Error("Latest-version check disabled in internal build");
     };
   },
 });
