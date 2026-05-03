@@ -5,6 +5,12 @@
 // first import line. See ./apply-umask.ts for the rationale.
 import "./apply-umask";
 
+// Internal-fork fix: silence `Error: write EPIPE` from winston's Console
+// transport when Freelens is launched as a packaged .app and stdio is
+// already closed. Must run before any logging code does. See
+// ./apply-stdio-fix.ts for the rationale.
+import "./apply-stdio-fix";
+
 import { applicationFeature, startApplicationInjectionToken } from "@freelensapp/application";
 import { applicationFeatureForElectronMain } from "@freelensapp/application-for-electron-main";
 import { commonExtensionApi as Common, mainExtensionApi as Main, registerLensCore } from "@freelensapp/core/main";

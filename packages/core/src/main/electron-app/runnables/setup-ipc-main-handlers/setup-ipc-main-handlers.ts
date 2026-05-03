@@ -102,6 +102,13 @@ export const setupIpcMainHandlers = ({
     "extension-discovery:state",
     "extension-installation-state-store:install",
     "extension-installation-state-store:clear-install",
+    // Renderer-side extension-loader hydration (observed at startup
+    // after the H4 allowlist landed; the renderer broadcasts its
+    // current loaded-extensions state back to main so other windows
+    // sync. Adding here keeps the allowlist tight while not breaking
+    // extension lifecycle).
+    "extension-loader:renderer:state",
+    "extension-loader:main:state",
   ]);
   const isAllowedRendererBroadcast = (channel: string): boolean => {
     if (rendererBroadcastAllowlist.has(channel)) return true;
