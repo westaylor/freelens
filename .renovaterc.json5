@@ -11,11 +11,20 @@
   "osvVulnerabilityAlerts": true,
   // always bump depdenencies even when are in the range
   "rangeStrategy": "bump",
+  // Internal-fork hardening (_security-review/02-supply-chain-audit.md):
+  // wait 7 days before opening a Renovate PR for a newly-published version.
+  // Most malicious npm releases (compromised maintainer, typosquats,
+  // accidental token leaks) are caught and unpublished within 24-72 hours.
+  // This also defangs versions that get yanked for non-security reasons.
+  "minimumReleaseAge": "7 days",
   "vulnerabilityAlerts": {
     "labels": [
       "security"
     ],
     "rangeStrategy": "bump",
+    // Slightly faster on CVE-driven PRs but still wait long enough that a
+    // malicious "fix" release would have time to be flagged.
+    "minimumReleaseAge": "3 days",
   },
   // disable autorebasing to save unecessary workflow runs
   "rebaseWhen": "conflicted",
