@@ -1,12 +1,18 @@
 name: Knip
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
-      - "*"
+      - main
+      - "internal/**"
+    paths:
+      - "packages/**"
+      - "freelens/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
+      - ".github/workflows/knip.yaml"
   workflow_dispatch: {}
 
 permissions:

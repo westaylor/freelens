@@ -1,12 +1,18 @@
 name: Check DI registration
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
-      - "*"
+      - main
+      - "internal/**"
+    paths:
+      - "packages/**"
+      - "freelens/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
+      - ".github/workflows/di-registration.yaml"
   workflow_dispatch: {}
 
 permissions:

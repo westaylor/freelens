@@ -1,12 +1,20 @@
 name: Integration tests
 
 on:
-  push:
-    branches:
-      - main
+  # Internal fork: only run on PRs and on demand. Doc-only commits to main
+  # (e.g. _security-review/*.md) shouldn't burn 60min of CI minutes.
   pull_request:
     branches:
-      - "*"
+      - main
+      - "internal/**"
+    paths:
+      - "packages/**"
+      - "freelens/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
+      - ".github/workflows/integration-tests.yaml"
   workflow_dispatch: {}
 
 permissions:
@@ -24,14 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Internal fork: linux only. macOS minutes are 10.3x and Windows
+          # are 1.67x on the GitHub free tier; macOS integration testing is
+          # done locally on the developer Mac. Windows is not a target.
           - runs-on: ubuntu-22.04
             os: linux
-            arch: x64
-          - runs-on: macos-14
-            os: macos
-            arch: arm64
-          - runs-on: windows-2022
-            os: windows
             arch: x64
 
     runs-on: ${{ matrix.runs-on }}

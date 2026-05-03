@@ -1,12 +1,14 @@
 name: NPM Licenses
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
-      - "*"
+      - main
+      - "internal/**"
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/npm-licenses.yaml"
   workflow_dispatch: {}
 
 permissions:

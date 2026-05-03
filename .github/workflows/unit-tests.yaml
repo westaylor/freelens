@@ -1,12 +1,21 @@
 name: Unit tests
 
 on:
-  push:
-    branches:
-      - main
+  # Internal fork: PR + manual dispatch only. Doc-only main pushes shouldn't
+  # trigger the test suite — the internal-build-check workflow already covers
+  # the "did this push break compilation?" question on every push.
   pull_request:
     branches:
-      - "*"
+      - main
+      - "internal/**"
+    paths:
+      - "packages/**"
+      - "freelens/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig*.json"
+      - ".github/workflows/unit-tests.yaml"
   workflow_dispatch: {}
 
 permissions:
