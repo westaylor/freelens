@@ -1,0 +1,158 @@
+# Internal-fork release pipeline for Linux artifacts.
+#
+# Triggers on:
+#   - tag push matching `v*` (e.g. v1.9.0-internal.1)
+#   - manual workflow_dispatch
+#
+# Cost (Linux runner, free 2,000 min/month for private repos):
+#   - cold-cache build:           ~9 min
+#   - warm-cache build:           ~5 min
+#   Per release tag: ~9 min once. Cheap.
+#
+# Why Linux only here:
+#   - macOS runners cost 10.3x Linux minutes per the GitHub multipliers.
+#   - macOS code-signing requires the Developer ID Application cert +
+#     APPLEID + APPLEIDPASS + APPLETEAMID. Putting those in GH secrets
+#     widens the blast radius of any account compromise. Sign on the
+#     developer's laptop instead (see freelens/scripts/build-mac-signed.sh).
+#   - Windows code-signing needs a separate code-signing cert; deferred.
+#
+# Required secrets: none. The default GITHUB_TOKEN is enough to attach
+# artifacts to a release.
+
+name: Internal — Linux release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build, or leave blank to build HEAD
+        type: string
+        required: false
+
+permissions:
+  contents: write    # needed to attach artifacts to a release
+  id-token: write    # for keyless attestations if we add them later
+
+concurrency:
+  group: internal-release-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x64
+
+    env:
+      DO_NOT_TRACK: "1"
+      TURBOREPO_CACHE: ${{ github.workspace }}/.turbo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Get pnpm cache directory
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> "$GITHUB_ENV"
+
+      - name: Use pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.pnpm_cache_dir }}
+          key: pnpm-release-linux-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: pnpm-release-linux-
+
+      - name: Use turbo cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TURBOREPO_CACHE }}
+          key: turbo-release-linux-${{ hashFiles('**/package.json', '**/pnpm-lock.yaml', 'turbo.json') }}
+          restore-keys: turbo-release-linux-
+
+      # Same install-retry pattern the build-check workflow uses to
+      # work around the bin-symlink propagation race.
+      - name: Install
+        id: install-pnpm
+        run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
+        continue-on-error: true
+
+      - name: Install (retry)
+        if: steps.install-pnpm.outcome == 'failure'
+        run: timeout 300 pnpm install --color=always --prefer-offline --frozen-lockfile
+
+      - name: Generate DI registrations
+        run: pnpm build:di
+
+      - name: Build all packages (TS + downloads + tray icons)
+        run: pnpm --color=always --stream build
+
+      - name: Build Linux .deb / .AppImage / .rpm
+        working-directory: freelens
+        run: |
+          # electron-builder picks the targets from electron-builder.yml.
+          # Currently the linux block has `target: [AppImage]`; deb/rpm
+          # blocks exist with full configs, so we ask for them
+          # explicitly here. Add/remove targets as needed.
+          pnpm dlx electron-builder@26.9.0 --publish never --linux \
+            AppImage \
+            deb \
+            rpm \
+            --${{ matrix.arch }}
+
+      - name: Inventory artifacts
+        run: ls -la freelens/dist/
+
+      - name: Verify production-CVE clean post-build
+        run: |
+          set -o pipefail
+          pnpm audit --prod --json > audit-prod.json || true
+          critical=$(jq '.metadata.vulnerabilities.critical' audit-prod.json)
+          high=$(jq '.metadata.vulnerabilities.high' audit-prod.json)
+          if [ "$critical" -gt 0 ] || [ "$high" -gt 0 ]; then
+            echo "::error::Production audit found $critical critical / $high high CVEs after build."
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: freelens-linux-${{ matrix.arch }}
+          path: |
+            freelens/dist/*.AppImage
+            freelens/dist/*.deb
+            freelens/dist/*.rpm
+            freelens/dist/latest-linux*.yml
+          retention-days: 90
+
+      - name: Attach to GitHub Release (tag push only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            freelens/dist/*.AppImage
+            freelens/dist/*.deb
+            freelens/dist/*.rpm
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
