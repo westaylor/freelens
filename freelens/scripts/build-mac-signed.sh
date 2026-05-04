@@ -206,7 +206,9 @@ if [ -n "$UPLOAD_TAG" ]; then
   # Make sure the release exists. `gh release view` exits non-zero if
   # the tag doesn't have a release yet. With --upload-create we create
   # one as a draft so the human can publish after reviewing artifacts.
-  if ! gh release view "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" >/dev/null 2>&1; then
+  # Use ${ARR[@]+"${ARR[@]}"} guard so set -u doesn't blow up when --repo
+  # wasn't passed and the array is empty (bash 3.2 on macOS is strict here).
+  if ! gh release view "$UPLOAD_TAG" ${GH_REPO_FLAG[@]+"${GH_REPO_FLAG[@]}"} >/dev/null 2>&1; then
     if [ "$UPLOAD_CREATE" -eq 1 ]; then
       echo "==> Release $UPLOAD_TAG doesn't exist; creating as draft"
       # Default release notes make the upstream attribution and the
@@ -221,7 +223,7 @@ This is a hardened fork; the changes against upstream are documented in [\`_secu
 Freelens is MIT-licensed and authored by the Freelens Authors and OpenLens Authors. This build is signed by our team's \`Developer ID Application\` certificate so the macOS binary passes corporate Gatekeeper / EDR policy.
 
 We do not claim authorship of the source code."
-      gh release create "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" \
+      gh release create "$UPLOAD_TAG" ${GH_REPO_FLAG[@]+"${GH_REPO_FLAG[@]}"} \
         --draft \
         --title "$UPLOAD_TAG" \
         --notes "$DRAFT_NOTES"
@@ -238,9 +240,9 @@ We do not claim authorship of the source code."
 
   # --clobber so a re-run with the same tag overwrites previous attempts
   # (handy when iterating on signing/notarization).
-  gh release upload "$UPLOAD_TAG" "${ARTIFACTS[@]}" --clobber "${GH_REPO_FLAG[@]}"
+  gh release upload "$UPLOAD_TAG" "${ARTIFACTS[@]}" --clobber ${GH_REPO_FLAG[@]+"${GH_REPO_FLAG[@]}"}
 
   echo
   echo "==> Done. Release URL:"
-  gh release view "$UPLOAD_TAG" "${GH_REPO_FLAG[@]}" --json url --jq .url
+  gh release view "$UPLOAD_TAG" ${GH_REPO_FLAG[@]+"${GH_REPO_FLAG[@]}"} --json url --jq .url
 fi
