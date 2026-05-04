@@ -179,22 +179,21 @@ if [ -n "$UPLOAD_TAG" ]; then
 
   # electron-builder produces:
   #   Freelens-<version>-arm64.dmg            (installer, drag-to-Applications)
-  #   Freelens-<version>-arm64.dmg.blockmap   (auto-update delta map)
-  #   Freelens-<version>-arm64-mac.zip        (zip of the .app, used by some
-  #                                            updaters and convenient for
-  #                                            scripted distribution)
+  #   Freelens-<version>-arm64.dmg.blockmap   (electron-updater delta map)
+  #   Freelens-<version>-arm64-mac.zip        (zip of the .app — required by
+  #                                            electron-updater for atomic swap)
   #   Freelens-<version>-arm64-mac.zip.blockmap
   #   latest-mac.yml                          (electron-updater feed)
   #
-  # We upload everything except the unpacked dist/mac*/ directory.
+  # Freelens has NO electron-updater wiring at runtime (verified: no import,
+  # no dependency, no setFeedURL, no Check-For-Updates menu item). End users
+  # install by manually downloading from the release page. So upload only the
+  # dmg — the zip / blockmaps / latest-mac.yml are dead weight that just
+  # bloats the release page and uploads slower for nobody's benefit. If we
+  # ever wire up runtime auto-update, restore the full glob below.
   shopt -s nullglob
   ARTIFACTS=(
     dist/*.dmg
-    dist/*.dmg.blockmap
-    dist/*-mac.zip
-    dist/*-mac.zip.blockmap
-    dist/latest-mac.yml
-    dist/latest-mac-*.yml
   )
   shopt -u nullglob
 
