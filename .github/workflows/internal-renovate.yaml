@@ -30,9 +30,10 @@
 name: Internal — daily Renovate
 
 on:
-  schedule:
-    # 04:00 UTC daily, before the security-audit workflow runs.
-    - cron: "0 4 * * *"
+  # Nightly schedule disabled — fails without correct access in this fork. Revisit later.
+  # schedule:
+  #   # 04:00 UTC daily, before the security-audit workflow runs.
+  #   - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       log_level:

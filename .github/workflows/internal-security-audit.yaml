@@ -16,9 +16,10 @@
 name: Internal — daily production CVE audit
 
 on:
-  schedule:
-    # 06:15 UTC daily, far away from the NPM registry's known busy hours.
-    - cron: "15 6 * * *"
+  # Nightly schedule disabled — fails without correct access in this fork. Revisit later.
+  # schedule:
+  #   # 06:15 UTC daily, far away from the NPM registry's known busy hours.
+  #   - cron: "15 6 * * *"
   workflow_dispatch: {}
   push:
     branches:
